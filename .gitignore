@@ -1,0 +1,25 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Local files / dataset references (Never push candidate dataset or logs to GitHub)
+candidates.jsonl
+candidates.jsonl.gz
+sample_candidates.json
+temp_uploaded_candidates.jsonl
+*.log
+*.csv
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Generated models and embeddings (Large files)
+*.npy
+candidate_ids.json
+
