@@ -50,12 +50,7 @@ CANDIDATE_DB_PATH = "D:/[PUB] India_runs_data_and_ai_challenge/India_runs_data_a
 
 @app.on_event("startup")
 def startup_event():
-    logger.info("Initializing candidate database...")
-    success = load_candidates_file(CANDIDATE_DB_PATH)
-    if success:
-        logger.info("Database loaded successfully.")
-    else:
-        logger.warning("Database failed to load at startup. Please load via the `/load` endpoint later.")
+    logger.info("Backend started successfully. Waiting for candidate uploads via UI.")
 
 @app.get("/health")
 def health_check():
@@ -226,7 +221,10 @@ def get_shortlist():
             "current_company": c["current_company"],
             "score": round(c["score"], 4),
             "reasoning": c["reasoning"],
-            "skills": skills_list[:5]  # limit to 5
+            "skills": skills_list[:10],
+            "education": c["candidate_raw"].get("education", []),
+            "career_history": c["candidate_raw"].get("career_history", []),
+            "signals": c["candidate_raw"].get("redrob_signals", {})
         })
         
     return {"shortlist": summary_list}
@@ -259,6 +257,57 @@ def export_shortlist_excel():
         filename="submission.xlsx", 
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+@app.post("/upload_candidates")
+async def upload_candidates_batch(file: UploadFile = File(...)):
+    """Ingests new candidate profiles via JSONL or CSV batch uploads."""
+    global CANDIDATES
+    filename = file.filename.lower()
+    content = await file.read()
+    
+    new_candidates = []
+    try:
+        if filename.endswith(".jsonl"):
+            text = content.decode("utf-8", errors="ignore")
+            for line in text.split("\n"):
+                if line.strip():
+                    new_candidates.append(json.loads(line))
+        elif filename.endswith(".csv"):
+            import io
+            df = pd.read_csv(io.BytesIO(content))
+            for _, row in df.iterrows():
+                # Basic mapping from CSV to JSON schema
+                cand = {
+                    "candidate_id": str(row.get("candidate_id", f"C-{len(CANDIDATES)+len(new_candidates)}")),
+                    "profile": {
+                        "anonymized_name": str(row.get("name", "Unknown")),
+                        "headline": str(row.get("headline", "")),
+                        "years_of_experience": float(row.get("years_exp", 0.0)),
+                        "location": str(row.get("location", "")),
+                        "current_title": str(row.get("current_title", "")),
+                        "current_company": str(row.get("current_company", ""))
+                    },
+                    "skills": [{"name": s.strip(), "proficiency": "intermediate", "duration_months": 24} for s in str(row.get("skills", "")).split(",") if s.strip()],
+                    "career_history": [],
+                    "education": [],
+                    "redrob_signals": {}
+                }
+                new_candidates.append(cand)
+        else:
+            raise HTTPException(status_code=400, detail="Only JSONL or CSV formats are supported for candidate batch uploads.")
+            
+        # Append to live DB
+        CANDIDATES.extend(new_candidates)
+        logger.info(f"Ingested {len(new_candidates)} new candidates. Total now: {len(CANDIDATES)}")
+        
+        return {
+            "status": "success",
+            "ingested_count": len(new_candidates),
+            "total_candidates": len(CANDIDATES)
+        }
+    except Exception as e:
+        logger.error(f"Error parsing candidate file {file.filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to ingest candidates: {str(e)}")
 
 # Helper function to parse docx XML directly (saves us installing python-docx)
 def parse_docx_bytes(file_bytes):

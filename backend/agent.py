@@ -16,7 +16,7 @@ ACTIVE_SHORTLIST = []
 def load_candidates_file(file_path: str):
     """Loads candidates from JSONL into memory once at startup."""
     global CANDIDATES
-    CANDIDATES = []
+    CANDIDATES.clear()
     
     path = Path(file_path)
     if not path.exists():
@@ -119,7 +119,8 @@ def rank_and_reason_candidates(job_description: str, top_n: int = 10) -> str:
     
     # We call the core ranking logic from ranker.py
     results = rank_candidates(CANDIDATES, jd_text=job_description)
-    ACTIVE_SHORTLIST = results[:top_n]
+    ACTIVE_SHORTLIST.clear()
+    ACTIVE_SHORTLIST.extend(results[:top_n])
     
     summary_list = []
     for c in ACTIVE_SHORTLIST:
