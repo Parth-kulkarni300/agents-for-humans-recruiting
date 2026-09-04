@@ -35,8 +35,11 @@ EMBEDDINGS_LOADED = False
 EMBEDDINGS_COUNT = 0
 
 # Attempt to load precomputed embeddings
-EMBEDDINGS_FILE = Path("candidate_embeddings.npy")
-IDS_FILE = Path("candidate_ids.json")
+# Use absolute paths relative to this file's directory so they work
+# regardless of the working directory uvicorn is launched from
+_BACKEND_DIR = Path(__file__).parent
+EMBEDDINGS_FILE = _BACKEND_DIR / "candidate_embeddings.npy"
+IDS_FILE = _BACKEND_DIR / "candidate_ids.json"
 
 if EMBEDDINGS_FILE.exists() and IDS_FILE.exists():
     try:
