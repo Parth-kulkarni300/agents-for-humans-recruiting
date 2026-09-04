@@ -8,6 +8,7 @@ import {
   ArrowRight,
   BarChart3,
   Bell,
+  Building,
   Check,
   ChevronDown,
   CircleHelp,
@@ -18,6 +19,7 @@ import {
   FileText,
   Filter,
   Globe2,
+  GraduationCap,
   LockKeyhole,
   MapPin,
   Search,
@@ -42,6 +44,8 @@ type Candidate = {
   headline: string;
   raw: string;
   fit: string;
+  willingToRelocate: boolean;
+  highestDegree: string; // 'bachelor' | 'master' | 'phd' | 'other'
   signals: {
     label: string;
     value: string;
@@ -218,12 +222,21 @@ export default function RecruitShieldApp() {
            if (c.signals.github_open_source_score) signals.push({ label: "GitHub Score", value: `${c.signals.github_open_source_score}/100`, type: "good" });
         }
         
+        // Derive highest degree
+        const eduArr = c.education || [];
+        const highestDegree = (() => {
+          if (eduArr.some((e: any) => /ph\.?d/i.test(e.degree || ''))) return 'phd';
+          if (eduArr.some((e: any) => /^m\.|master|m\.tech|m\.s|m\.e|m\.sc/i.test(e.degree || ''))) return 'master';
+          if (eduArr.some((e: any) => /^b\.|bachelor|b\.tech|b\.e|b\.sc/i.test(e.degree || ''))) return 'bachelor';
+          return 'other';
+        })();
+
         return {
           id: c.candidate_id || c.rank,
           rank: c.rank,
           name: c.name,
           role: c.current_title,
-          score: Math.min(100, Math.round(c.score * 100)), // backend returns 0-1 normalized
+          score: Math.min(100, Math.round(c.score * 100)),
           location: c.location,
           experience: c.years_exp,
           initials: (c.name || "CN").split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase(),
@@ -231,6 +244,8 @@ export default function RecruitShieldApp() {
           headline: c.headline,
           raw: c.score ? c.score.toFixed(4) : "0.0000",
           fit: c.reasoning,
+          willingToRelocate: !!(c.signals?.willing_to_relocate),
+          highestDegree,
           signals: signals.length > 0 ? signals : [
             { label: 'Open-to-work', value: 'Active', type: 'good' },
             { label: 'Verified', value: 'Yes', type: 'good' }
@@ -260,25 +275,57 @@ export default function RecruitShieldApp() {
   const [selected, setSelected] = useState<Candidate>(candidates[0]);
   const [query, setQuery] = useState("");
   const [threshold, setThreshold] = useState(0);
-  const [minExp, setMinExp] = useState(0);
   const [locations, setLocations] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
   const [jd, setJd] = useState("");
   const [jdSkills, setJdSkills] = useState<string[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [jdLocations, setJdLocations] = useState<string[]>([]);
+  const [jdWorkModes, setJdWorkModes] = useState<string[]>([]);
+  // Experience buckets: 'Fresher' | '0-2' | '2-5' | '5+'
+  const [expBuckets, setExpBuckets] = useState<string[]>([]);
+  // Work mode filter
+  const [workModes, setWorkModes] = useState<string[]>([]);
+  // Education filter
+  const [eduLevels, setEduLevels] = useState<string[]>([]);
+  // Open to relocation
+  const [openToRelocation, setOpenToRelocation] = useState(false);
+
+  const expBucketMatch = (exp: number) => {
+    if (expBuckets.length === 0) return true;
+    return expBuckets.some(b => {
+      if (b === 'Fresher') return exp <= 1;
+      if (b === '0-2')    return exp >= 0 && exp <= 2;
+      if (b === '2-5')    return exp >= 2 && exp <= 5;
+      if (b === '5+')     return exp >= 5;
+      return true;
+    });
+  };
 
   const filtered = useMemo(
     () =>
-      candidates.filter(
-        (c) =>
-          c.score >= threshold &&
-          c.experience >= minExp &&
-          (locations.length === 0 || locations.some((l) => c.location.includes(l))) &&
-          (selectedSkills.length === 0 || selectedSkills.every(s => c.skills.some((cs: any) => cs.name.toLowerCase() === s.toLowerCase()))) &&
-          `${c.name} ${c.role} ${c.location}`.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [query, threshold, minExp, locations, selectedSkills, candidates],
+      candidates.filter((c) => {
+        // Match score
+        if (c.score < threshold) return false;
+        // Experience bucket
+        if (!expBucketMatch(c.experience)) return false;
+        // Location
+        if (locations.length > 0 && !locations.some(l => c.location.toLowerCase().includes(l.toLowerCase()))) return false;
+        // Required skills
+        if (selectedSkills.length > 0 && !selectedSkills.every(s => c.skills.some((cs: any) => cs.name.toLowerCase() === s.toLowerCase()))) return false;
+        // Education
+        if (eduLevels.length > 0) {
+          const degMap: Record<string, string> = { "Bachelor's": 'bachelor', "Master's": 'master', 'PhD': 'phd' };
+          if (!eduLevels.some(e => c.highestDegree === degMap[e])) return false;
+        }
+        // Open to relocation
+        if (openToRelocation && !c.willingToRelocate) return false;
+        // Text search
+        if (!`${c.name} ${c.role} ${c.location}`.toLowerCase().includes(query.toLowerCase())) return false;
+        return true;
+      }),
+    [query, threshold, expBuckets, locations, selectedSkills, eduLevels, openToRelocation, candidates],
   );
 
   const analyze = async () => {
@@ -334,6 +381,8 @@ export default function RecruitShieldApp() {
         jd={jd}
         setJd={setJd}
         setJdSkills={setJdSkills}
+        setJdLocations={setJdLocations}
+        setJdWorkModes={setJdWorkModes}
         loading={loading}
         onBack={() => setScreen("landing")}
         onAnalyze={analyze}
@@ -347,6 +396,16 @@ export default function RecruitShieldApp() {
     return (
       <DeepDive candidate={selected} onBack={() => setScreen("pipeline")} />
     );
+  const resetAllFilters = () => {
+    setThreshold(0);
+    setExpBuckets([]);
+    setLocations([]);
+    setWorkModes([]);
+    setSelectedSkills([]);
+    setEduLevels([]);
+    setOpenToRelocation(false);
+  };
+
   return (
     <>
       <Pipeline
@@ -360,13 +419,22 @@ export default function RecruitShieldApp() {
         setQuery={setQuery}
         threshold={threshold}
         setThreshold={setThreshold}
-        minExp={minExp}
-        setMinExp={setMinExp}
+        expBuckets={expBuckets}
+        setExpBuckets={setExpBuckets}
         locations={locations}
         setLocations={setLocations}
+        workModes={workModes}
+        setWorkModes={setWorkModes}
         jdSkills={jdSkills}
         selectedSkills={selectedSkills}
         setSelectedSkills={setSelectedSkills}
+        jdLocations={jdLocations}
+        jdWorkModes={jdWorkModes}
+        eduLevels={eduLevels}
+        setEduLevels={setEduLevels}
+        openToRelocation={openToRelocation}
+        setOpenToRelocation={setOpenToRelocation}
+        onResetFilters={resetAllFilters}
         onBack={() => setScreen("ingest")}
         onSelect={(c) => {
           setSelected(c);
@@ -599,6 +667,8 @@ function Ingest({
   jd,
   setJd,
   setJdSkills,
+  setJdLocations,
+  setJdWorkModes,
   loading,
   onBack,
   onAnalyze,
@@ -609,6 +679,8 @@ function Ingest({
   jd: string;
   setJd: (x: string) => void;
   setJdSkills: (x: string[]) => void;
+  setJdLocations: (x: string[]) => void;
+  setJdWorkModes: (x: string[]) => void;
   loading: boolean;
   onBack: () => void;
   onAnalyze: () => void;
@@ -635,6 +707,8 @@ function Ingest({
       if (type === 'jd') {
         if (data.text) setJd(data.text);
         if (data.metadata && data.metadata.skills_found) setJdSkills(data.metadata.skills_found);
+        if (data.metadata && data.metadata.locations_found) setJdLocations(data.metadata.locations_found);
+        if (data.metadata && data.metadata.work_modes_found) setJdWorkModes(data.metadata.work_modes_found);
       } else if (type === 'candidates') {
         // Notify parent so it can refresh stats from backend
         if (data.total_candidates) onCandidatesUploaded(data.total_candidates);
@@ -751,7 +825,7 @@ function WorkspaceHeader({
 }
 
 function Pipeline({
-  candidates,
+  candidates: _candidates,
   filtered,
   stats,
   page,
@@ -761,13 +835,22 @@ function Pipeline({
   setQuery,
   threshold,
   setThreshold,
-  minExp,
-  setMinExp,
+  expBuckets,
+  setExpBuckets,
   locations,
   setLocations,
+  workModes,
+  setWorkModes,
   jdSkills,
   selectedSkills,
   setSelectedSkills,
+  jdLocations,
+  jdWorkModes,
+  eduLevels,
+  setEduLevels,
+  openToRelocation,
+  setOpenToRelocation,
+  onResetFilters,
   onBack,
   onSelect,
   onOpenHoneypots,
@@ -782,110 +865,261 @@ function Pipeline({
   setQuery: (x: string) => void;
   threshold: number;
   setThreshold: (x: number) => void;
-  minExp: number;
-  setMinExp: (x: number) => void;
+  expBuckets: string[];
+  setExpBuckets: (b: string[]) => void;
   locations: string[];
-  setLocations: (x: string[]) => void;
+  setLocations: (l: string[]) => void;
+  workModes: string[];
+  setWorkModes: (w: string[]) => void;
   jdSkills: string[];
   selectedSkills: string[];
   setSelectedSkills: (s: string[]) => void;
+  jdLocations: string[];
+  jdWorkModes: string[];
+  eduLevels: string[];
+  setEduLevels: (e: string[]) => void;
+  openToRelocation: boolean;
+  setOpenToRelocation: (b: boolean) => void;
+  onResetFilters: () => void;
   onBack: () => void;
   onSelect: (c: Candidate) => void;
   onOpenHoneypots: () => void;
 }) {
-  const toggle = (v: string) =>
-    setLocations(
-      locations.includes(v)
-        ? locations.filter((x) => x !== v)
-        : [...locations, v],
+  const toggleExpBucket = (b: string) =>
+    setExpBuckets(
+      expBuckets.includes(b) ? expBuckets.filter((x) => x !== b) : [...expBuckets, b]
     );
+
+  const toggleLoc = (v: string) =>
+    setLocations(
+      locations.includes(v) ? locations.filter((x) => x !== v) : [...locations, v]
+    );
+
+  const toggleWorkMode = (w: string) =>
+    setWorkModes(
+      workModes.includes(w) ? workModes.filter((x) => x !== w) : [...workModes, w]
+    );
+
+  const toggleEdu = (e: string) =>
+    setEduLevels(
+      eduLevels.includes(e) ? eduLevels.filter((x) => x !== e) : [...eduLevels, e]
+    );
+
+  const toggleSkill = (s: string) =>
+    setSelectedSkills(
+      selectedSkills.includes(s)
+        ? selectedSkills.filter((x) => x !== s)
+        : [...selectedSkills, s]
+    );
+
+  const activeFilterCount =
+    selectedSkills.length +
+    locations.length +
+    workModes.length +
+    expBuckets.length +
+    eduLevels.length +
+    (threshold > 0 ? 1 : 0) +
+    (openToRelocation ? 1 : 0);
+
   return (
     <main className="workspace min-h-screen">
       <WorkspaceHeader step="02 / MATCH" onBack={onBack} />
       <div className="pipeline-layout">
         <aside className="filter-sidebar">
-          <div className="flex items-center justify-between">
-            <div className="section-kicker">
-              <Filter size={14} /> FILTERS
+          {/* Header */}
+          <div className="fsb-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="fsb-icon"><Filter size={13} /></div>
+              <span className="fsb-title">Smart Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="fsb-badge">{activeFilterCount}</span>
+              )}
             </div>
-            <button
-              className="clear-button"
-              onClick={() => {
-                setThreshold(0);
-                setMinExp(0);
-                setLocations([]);
-              }}
-            >
-              Clear all
+            <button className="fsb-clear" onClick={onResetFilters}>
+              Reset
             </button>
           </div>
-          <FilterBlock title="Required Skills (JD)">
-            {jdSkills.length > 0 ? jdSkills.map((s) => (
-              <label key={s}>
-                <input 
-                  type="checkbox" 
-                  checked={selectedSkills.includes(s)}
-                  onChange={(e) => {
-                    if (e.target.checked) setSelectedSkills([...selectedSkills, s]);
-                    else setSelectedSkills(selectedSkills.filter(x => x !== s));
-                  }}
-                />
-                {s}
-              </label>
-            )) : <span style={{fontSize:'12px', color:'#7d899c'}}>Upload JD to extract skills</span>}
-          </FilterBlock>
-          <FilterBlock title="Experience">
-            <input
-              className="range"
-              type="range"
-              min="0"
-              max="12"
-              value={minExp}
-              onChange={(e) => setMinExp(+e.target.value)}
-            />
-            <div className="range-labels">
-              <span>{minExp}+ years</span>
-              <span>12 years</span>
+
+          {/* JD Context Banner */}
+          {(jdSkills.length > 0 || jdLocations.length > 0) && (
+            <div className="fsb-jd-banner">
+              <Sparkles size={11} />
+              <span>Filters auto-tuned from JD</span>
             </div>
-          </FilterBlock>
-          <FilterBlock title="Location">
-            {Array.from(new Set(candidates.map(c => c.location))).map((loc) => {
-              const count = candidates.filter(c => c.location === loc).length;
-              return (
-                <label key={loc}>
+          )}
+
+          {/* Match Score Section */}
+          <div className="fsb-section">
+            <div className="fsb-section-label">
+              <BarChart3 size={12} />
+              Min. Match Score
+            </div>
+            <div className="fsb-score-row">
+              <input
+                type="range" min="0" max="95" step="5"
+                value={threshold}
+                onChange={(e) => setThreshold(+e.target.value)}
+                className="fsb-range"
+                style={{ width: '100%' }}
+              />
+              <div className="fsb-score-display">
+                <span className="fsb-score-num">{threshold}</span>
+                <span className="fsb-score-label">min score</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Experience Section */}
+          <div className="fsb-section">
+            <div className="fsb-section-label">
+              <Clock3 size={12} />
+              Experience Level
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {[
+                { id: 'Fresher', label: 'Fresher (0-1y)' },
+                { id: '0-2', label: '0 – 2 years' },
+                { id: '2-5', label: '2 – 5 years' },
+                { id: '5+', label: '5+ years' },
+              ].map((b) => (
+                <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: '#cbd5e1', cursor: 'pointer', userSelect: 'none' }}>
                   <input
                     type="checkbox"
-                    checked={locations.includes(loc)}
-                    onChange={() => toggle(loc)}
+                    checked={expBuckets.includes(b.id)}
+                    onChange={() => toggleExpBucket(b.id)}
+                    style={{ accentColor: '#12d9e8' }}
                   />
-                  <span>{loc}</span>
-                  <em>{count}</em>
+                  <span>{b.label}</span>
                 </label>
-              );
-            })}
-          </FilterBlock>
-          <FilterBlock title="Match score">
-            <input
-              className="range"
-              type="range"
-              min="0"
-              max="95"
-              value={threshold}
-              onChange={(e) => setThreshold(+e.target.value)}
-            />
-            <div className="range-labels">
-              <span>{threshold}+ score</span>
-              <span>95</span>
+              ))}
             </div>
-          </FilterBlock>
-          <div className="filter-foot">
-            <ShieldCheck size={16} />
-            <span>
-              Threat screening
-              <br />
-              <b>Active & monitoring</b>
-            </span>
-            <StatusDot />
+          </div>
+
+          {/* Location Section (from JD) */}
+          <div className="fsb-section">
+            <div className="fsb-section-label">
+              <MapPin size={12} />
+              Location
+              {jdLocations.length > 0 && <span className="fsb-jd-hint">from JD</span>}
+            </div>
+            {jdLocations.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {jdLocations.map((loc) => (
+                  <label key={loc} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: '#cbd5e1', cursor: 'pointer', userSelect: 'none', textTransform: 'capitalize' }}>
+                    <input
+                      type="checkbox"
+                      checked={locations.includes(loc)}
+                      onChange={() => toggleLoc(loc)}
+                      style={{ accentColor: '#12d9e8' }}
+                    />
+                    <span>{loc}</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div className="fsb-empty-hint">
+                No location specified in JD. All candidate locations included.
+              </div>
+            )}
+          </div>
+
+          {/* Work Mode Section */}
+          <div className="fsb-section">
+            <div className="fsb-section-label">
+              <Building size={12} />
+              Work Mode
+              {jdWorkModes.length > 0 && <span className="fsb-jd-hint">from JD</span>}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {['Remote', 'Hybrid', 'On-site'].map((wm) => (
+                <label key={wm} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: '#cbd5e1', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={workModes.includes(wm)}
+                    onChange={() => toggleWorkMode(wm)}
+                    style={{ accentColor: '#12d9e8' }}
+                  />
+                  <span>{wm}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Required Skills Section (from JD) */}
+          <div className="fsb-section">
+            <div className="fsb-section-label">
+              <Zap size={12} />
+              Required Skills
+              {jdSkills.length === 0 && <span className="fsb-no-jd">— upload JD to extract</span>}
+            </div>
+            {jdSkills.length > 0 ? (
+              <div className="fsb-chips">
+                {jdSkills.map((s) => {
+                  const active = selectedSkills.includes(s);
+                  return (
+                    <button
+                      key={s}
+                      className={`fsb-chip ${active ? 'fsb-chip--on' : ''}`}
+                      onClick={() => toggleSkill(s)}
+                    >
+                      {s}
+                      {active ? <X size={12} /> : <Check size={10} />}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="fsb-empty-hint">
+                Upload a JD to extract required skills automatically.
+              </div>
+            )}
+          </div>
+
+          {/* Education Level Section */}
+          <div className="fsb-section">
+            <div className="fsb-section-label">
+              <GraduationCap size={12} />
+              Education
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {["Bachelor's", "Master's", "PhD"].map((edu) => (
+                <label key={edu} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: '#cbd5e1', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={eduLevels.includes(edu)}
+                    onChange={() => toggleEdu(edu)}
+                    style={{ accentColor: '#12d9e8' }}
+                  />
+                  <span>{edu}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Relocation Toggle */}
+          <div className="fsb-section">
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1' }}>Willing to Relocate</span>
+              <input
+                type="checkbox"
+                checked={openToRelocation}
+                onChange={(e) => setOpenToRelocation(e.target.checked)}
+                style={{ accentColor: '#12d9e8' }}
+              />
+            </label>
+          </div>
+
+          {/* Results preview */}
+          <div className="fsb-result-preview">
+            <span className="fsb-result-count">{filtered.length}</span>
+            <span className="fsb-result-label">candidates match</span>
+          </div>
+
+          {/* Threat status */}
+          <div className="fsb-threat">
+            <div className="fsb-threat-dot" />
+            <span>Threat shield <b>active</b></span>
+            <ShieldCheck size={13} style={{ marginLeft: 'auto', color: '#12d9e8' }} />
           </div>
         </aside>
         <section className="pipeline-main">
@@ -1047,20 +1281,7 @@ function Pipeline({
     </main>
   );
 }
-function FilterBlock({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="filter-block">
-      <h3>{title}</h3>
-      <div className="filter-options">{children}</div>
-    </div>
-  );
-}
+// Metric component used in candidate pipeline stats
 function Metric({
   label,
   value,

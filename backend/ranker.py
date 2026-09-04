@@ -224,6 +224,58 @@ def extract_experience_range_from_jd(jd_text):
         return 0.0, float(match.group(1))
     return 0.0, 30.0
 
+# Known Indian tech-hub cities + global cities for JD location extraction
+KNOWN_CITIES = [
+    "bangalore", "bengaluru", "mumbai", "delhi", "new delhi", "hyderabad", "pune", "chennai",
+    "gurgaon", "gurugram", "noida", "kolkata", "ahmedabad", "jaipur", "kochi", "chandigarh",
+    "indore", "surat", "vadodara", "nagpur", "coimbatore", "visakhapatnam", "lucknow",
+    "bhubaneswar", "thiruvananthapuram", "remote", "hybrid", "work from home", "wfh",
+    "san francisco", "new york", "london", "singapore", "dubai", "toronto", "sydney"
+]
+
+def extract_locations_from_jd(jd_text):
+    """Extract city/location mentions from JD text."""
+    if not jd_text:
+        return []
+    text = jd_text.lower()
+    found = []
+    for city in KNOWN_CITIES:
+        if city in ("remote", "hybrid", "work from home", "wfh"):
+            continue  # handled by work mode extractor
+        pattern = r"\b" + re.escape(city) + r"\b"
+        if re.search(pattern, text):
+            label = city.title()
+            if city in ("bengaluru",) and "Bangalore" in found:
+                continue
+            if city in ("bangalore",) and "Bengaluru" in found:
+                continue
+            if city in ("gurgaon",) and "Gurugram" in found:
+                continue
+            if city in ("gurugram",) and "Gurgaon" in found:
+                continue
+            found.append(label)
+    return found
+
+def extract_work_modes_from_jd(jd_text):
+    """Extract work mode preferences from JD text."""
+    if not jd_text:
+        return []
+    text = jd_text.lower()
+    modes = []
+    remote_kw = ["fully remote", "100% remote", "remote only", "remote-first", "work from home", "wfh", "remote ok", "remote friendly"]
+    hybrid_kw = ["hybrid", "flexible working", "partial remote", "mix of remote"]
+    onsite_kw = ["on-site", "onsite", "in-office", "office based", "on site", "work from office", "wfo"]
+    if any(kw in text for kw in remote_kw) or re.search(r'\bremote\b', text):
+        modes.append("Remote")
+    if any(kw in text for kw in hybrid_kw):
+        modes.append("Hybrid")
+    if any(kw in text for kw in onsite_kw):
+        modes.append("On-site")
+    # Default: if nothing detected, return common options
+    if not modes:
+        modes = ["On-site", "Hybrid", "Remote"]
+    return modes
+
 def calculate_title_score(cand, jd_title_keywords=None):
     """
     Calculate title score based on role alignment.

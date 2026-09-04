@@ -439,16 +439,22 @@ async def upload_job_description(file: UploadFile = File(...)):
         text = re.sub(r"\s+", " ", text).strip()
         
         # Extract skills and range details as validation metadata
-        from backend.ranker import extract_skills_from_jd, extract_experience_range_from_jd
+        from backend.ranker import extract_skills_from_jd, extract_experience_range_from_jd, extract_locations_from_jd, extract_work_modes_from_jd
         skills = list(extract_skills_from_jd(text))
         min_exp, max_exp = extract_experience_range_from_jd(text)
+        locations = extract_locations_from_jd(text)
+        work_modes = extract_work_modes_from_jd(text)
         
         return {
             "text": text,
             "filename": file.filename,
             "metadata": {
                 "skills_found": skills,
-                "experience_range": f"{min_exp} - {max_exp} years"
+                "experience_range": f"{min_exp} - {max_exp} years",
+                "min_exp": min_exp,
+                "max_exp": max_exp,
+                "locations_found": locations,
+                "work_modes_found": work_modes
             }
         }
     except Exception as e:
