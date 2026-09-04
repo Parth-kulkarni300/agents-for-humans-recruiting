@@ -32,6 +32,7 @@ CURRENT_REF_DATE = datetime.datetime(2026, 6, 11)
 CANDIDATE_EMBEDDINGS = None
 CANDIDATE_ID_TO_INDEX = {}
 EMBEDDINGS_LOADED = False
+EMBEDDINGS_COUNT = 0
 
 # Attempt to load precomputed embeddings
 EMBEDDINGS_FILE = Path("candidate_embeddings.npy")
@@ -44,7 +45,8 @@ if EMBEDDINGS_FILE.exists() and IDS_FILE.exists():
             ids_list = json.load(f)
         CANDIDATE_ID_TO_INDEX = {cid: idx for idx, cid in enumerate(ids_list)}
         EMBEDDINGS_LOADED = True
-        print(f"Loaded {CANDIDATE_EMBEDDINGS.shape[0]} precomputed candidate embeddings.")
+        EMBEDDINGS_COUNT = CANDIDATE_EMBEDDINGS.shape[0]
+        print(f"Loaded {EMBEDDINGS_COUNT} precomputed candidate embeddings.")
     except Exception as e:
         print(f"Warning: Failed to load precomputed embeddings: {e}")
 
@@ -468,7 +470,7 @@ def calculate_availability_multiplier(cand):
         
     return otw_mult * active_mult * rrr_mult * notice_mult
 
-def generate_reasoning(cand, rank):
+def generate_reasoning(cand, rank, is_consulting=False):
     """
     Programmatically generate a customized, fact-grounded recruiter reasoning for Stage 4 review.
     Does not hallucinate, connects to JD, and adapts tone to rank.
@@ -509,10 +511,11 @@ def generate_reasoning(cand, rank):
         highlights.append(github_str)
     highlights_str = f" ({', '.join(highlights)})" if highlights else ""
     
+    consulting_note = " (Note: Entire background is in IT services, requiring vetting for product culture fit)" if is_consulting else ""
     if rank <= 10:
         return (
             f"Exceptional {title} with {exp:.1f} years of experience{highlights_str}. Proved production impact at product companies; "
-            f"expert {skills_str} matching the 'shipper' profile. Strong engagement signals ({notice_str}, {int(signals.get('recruiter_response_rate', 0)*100)}% response rate)."
+            f"expert {skills_str} matching the 'shipper' profile. Strong engagement signals ({notice_str}, {int(signals.get('recruiter_response_rate', 0)*100)}% response rate).{consulting_note}"
         )
     elif rank <= 50:
         concern = ""
@@ -559,15 +562,10 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
         return None
         
     # B. Consulting check
-    if is_default:
-        exclude_consulting = True
-    else:
-        # Check if the custom JD explicitly mentions consulting exclusion/service companies
-        exclude_consulting = any(kw in jd_text.lower() for kw in ["consulting/service", "consulting company", "service company", "tcs", "infosys", "wipro", "accenture", "cognizant", "capgemini"])
-        
-    if exclude_consulting and is_consulting_only(cand):
+    # Soft penalty (-0.05) will be applied to consulting candidates instead of hard exclusion
+    is_consulting = is_consulting_only(cand)
+    if is_consulting:
         LAST_RUN_STATS["consulting"] += 1
-        return None
         
     profile = cand.get("profile", {})
     
@@ -680,6 +678,11 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
     base_score += career_s * 0.3  # career description bonus — "production retrieval" beats pure skill lists
     base_score += edu_score + github_score + assess_score + completeness_score
     
+    # Soft consulting penalty (-0.05 score adjustment instead of ban)
+    if is_consulting:
+        base_score -= 0.05
+
+    
     # 3. Availability Multiplier & Interest
     availability_mult = calculate_availability_multiplier(cand)
     
@@ -767,7 +770,7 @@ def rank_candidates(candidates_list, jd_text=""):
         rank = idx + 1
         c["rank"] = rank
         if rank <= 100:
-            c["reasoning"] = generate_reasoning(c["candidate_raw"], rank)
+            c["reasoning"] = generate_reasoning(c["candidate_raw"], rank, is_consulting_only(c["candidate_raw"]))
         else:
             c["reasoning"] = f"Candidate ranks outside top 100 shortlist (Rank {rank})."
         ranked_results.append(c)

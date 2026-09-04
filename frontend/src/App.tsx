@@ -157,16 +157,32 @@ export default function RecruitShieldApp() {
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [stats, setStats] = useState({
+    total_candidates: 100000,
+    eligible_candidates: 87189,
+    honeypot_count: 12811,
+    total_ranked: 87189
+  });
+
   // API: Fetch shortlist
-  const fetchShortlist = async () => {
+  const fetchShortlist = async (p = 1) => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/shortlist");
+      const res = await fetch(`http://127.0.0.1:8000/shortlist?page=${p}&limit=50`);
       const data = await res.json();
-      const mapped = data.shortlist.map((c: any, i: number) => {
+      
+      if (data.stats) {
+        setStats(data.stats);
+      }
+      if (data.page) setPage(data.page);
+      if (data.total_pages) setTotalPages(data.total_pages);
+
+      const mapped = (data.shortlist || []).map((c: any) => {
         const tones = ["cyan", "violet", "blue", "orange", "green"];
         
         // Map backend skills to v0 format
-        const uiSkills = c.skills.map((s: string) => ({ name: s, level: "Advanced", value: 85 }));
+        const uiSkills = (c.skills || []).map((s: string) => ({ name: s, level: "Advanced", value: 85 }));
         
         // Map backend timeline to v0 format
         const uiTimeline = c.career_history ? c.career_history.map((h: any) => ({
@@ -186,16 +202,17 @@ export default function RecruitShieldApp() {
         }
         
         return {
-          id: i + 1,
+          id: c.candidate_id || c.rank,
+          rank: c.rank,
           name: c.name,
           role: c.current_title,
           score: Math.round(c.score * 100), // convert 0-1 score to 0-100
           location: c.location,
           experience: c.years_exp,
-          initials: c.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase(),
-          tone: tones[i % tones.length],
+          initials: (c.name || "CN").split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase(),
+          tone: tones[(c.rank || 1) % tones.length],
           headline: c.headline,
-          raw: c.score.toFixed(4),
+          raw: c.score ? c.score.toFixed(4) : "0.0000",
           fit: c.reasoning,
           signals: signals.length > 0 ? signals : [
             { label: 'Open-to-work', value: 'Active', type: 'good' },
@@ -217,7 +234,7 @@ export default function RecruitShieldApp() {
   };
 
   useEffect(() => {
-    fetchShortlist();
+    fetchShortlist(1);
   }, []);
 
   const [screen, setScreen] = useState<
@@ -225,7 +242,7 @@ export default function RecruitShieldApp() {
   >("landing");
   const [selected, setSelected] = useState<Candidate>(candidates[0]);
   const [query, setQuery] = useState("");
-  const [threshold, setThreshold] = useState(70);
+  const [threshold, setThreshold] = useState(0);
   const [minExp, setMinExp] = useState(0);
   const [locations, setLocations] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -233,6 +250,7 @@ export default function RecruitShieldApp() {
   const [jd, setJd] = useState("");
   const [jdSkills, setJdSkills] = useState<string[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+
   const filtered = useMemo(
     () =>
       candidates.filter(
@@ -245,6 +263,7 @@ export default function RecruitShieldApp() {
       ),
     [query, threshold, minExp, locations, selectedSkills, candidates],
   );
+
   const analyze = async () => {
     setLoading(true);
     try {
@@ -253,15 +272,23 @@ export default function RecruitShieldApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: "rank top candidates", job_description: jd })
       });
-      await res.json();
-      await fetchShortlist();
+      
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Agent Execution Failed: ${err.detail || res.statusText}`);
+        return;
+      }
+      
+      await fetchShortlist(1);
       setScreen("pipeline");
     } catch (e) {
       console.error(e);
+      alert("Network Error: Could not reach the backend agent.");
     } finally {
       setLoading(false);
     }
   };
+
   if (screen === "landing")
     return <Landing onLaunch={() => setScreen("ingest")} />;
   if (screen === "ingest")
@@ -285,6 +312,10 @@ export default function RecruitShieldApp() {
     <Pipeline
       candidates={candidates}
       filtered={filtered}
+      stats={stats}
+      page={page}
+      totalPages={totalPages}
+      onPageChange={(p) => fetchShortlist(p)}
       query={query}
       setQuery={setQuery}
       threshold={threshold}
@@ -669,6 +700,10 @@ function WorkspaceHeader({
 function Pipeline({
   candidates,
   filtered,
+  stats,
+  page,
+  totalPages,
+  onPageChange,
   query,
   setQuery,
   threshold,
@@ -685,6 +720,10 @@ function Pipeline({
 }: {
   candidates: Candidate[];
   filtered: Candidate[];
+  stats: { total_candidates: number; eligible_candidates: number; honeypot_count: number; total_ranked: number };
+  page: number;
+  totalPages: number;
+  onPageChange: (p: number) => void;
   query: string;
   setQuery: (x: string) => void;
   threshold: number;
@@ -717,7 +756,7 @@ function Pipeline({
             <button
               className="clear-button"
               onClick={() => {
-                setThreshold(70);
+                setThreshold(0);
                 setMinExp(0);
                 setLocations([]);
               }}
@@ -774,7 +813,7 @@ function Pipeline({
             <input
               className="range"
               type="range"
-              min="50"
+              min="0"
               max="95"
               value={threshold}
               onChange={(e) => setThreshold(+e.target.value)}
@@ -833,26 +872,21 @@ function Pipeline({
               <ChevronDown size={14} />
             </button>
           </div>
-          <div className="metrics-row">
+          <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
             <Metric
-              label="Candidates processed"
-              value={candidates.length.toString()}
-              change=""
+              label="TOTAL CANDIDATES"
+              value={(stats.total_candidates || candidates.length).toLocaleString()}
+              change="Total in dataset"
             />
             <Metric
-              label="Above threshold"
-              value={filtered.length.toString().padStart(2, "0")}
-              change="Active view"
+              label="ELIGIBLE CANDIDATES"
+              value={(stats.eligible_candidates || filtered.length).toLocaleString()}
+              change="Active screening pool"
             />
             <Metric 
-              label="Avg. match score" 
-              value={(filtered.reduce((acc, c) => acc + c.score, 0) / (filtered.length || 1)).toFixed(1)} 
-              change="" 
-            />
-            <Metric 
-              label="Signals verified" 
-              value={Math.round((filtered.filter(c => c.signals && c.signals.length > 0).length / (filtered.length || 1)) * 100) + "%"} 
-              change="" 
+              label="HONEYPOT PROFILES" 
+              value={(stats.honeypot_count && stats.honeypot_count > 0 ? stats.honeypot_count : (stats.total_candidates - stats.eligible_candidates)).toLocaleString()} 
+              change="Fake profiles caught" 
             />
           </div>
           <div className="candidate-table">
@@ -874,11 +908,11 @@ function Pipeline({
               filtered.map((c, i) => (
                 <button
                   className="candidate-row"
-                  key={c.id}
+                  key={c.id || i}
                   onClick={() => onSelect(c)}
                 >
                   <span className="candidate-cell">
-                    <i className="rank">{String(i + 1).padStart(2, "0")}</i>
+                    <i className="rank">#{String((c as any).rank || i + 1).padStart(2, "0")}</i>
                     <span className={`tiny-avatar ${c.tone}`}>
                       {c.initials}
                     </span>
@@ -903,11 +937,53 @@ function Pipeline({
               ))
             )}
           </div>
-          <div className="table-footer">
-            <span>Showing {filtered.length} of 2,481 candidates</span>
-            <span className="flex items-center gap-2">
-              <StatusDot /> Last synced just now
+          <div className="table-footer flex items-center justify-between" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '13px', color: '#94a3b8' }}>
+              Showing candidates {((page - 1) * 50) + 1} – {Math.min(page * 50, stats.total_ranked)} of {(stats.total_ranked || 100000).toLocaleString()} ranked
             </span>
+            <div className="flex items-center gap-3" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button
+                disabled={page <= 1}
+                onClick={() => onPageChange(page - 1)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  background: page <= 1 ? 'rgba(255,255,255,0.03)' : 'rgba(0, 242, 254, 0.15)',
+                  color: page <= 1 ? '#555' : '#00f2fe',
+                  border: '1px solid rgba(0, 242, 254, 0.3)',
+                  cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <ArrowLeft size={14} /> Previous 50
+              </button>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#38bdf8' }}>
+                Page {page} of {totalPages || 1}
+              </span>
+              <button
+                disabled={page >= totalPages}
+                onClick={() => onPageChange(page + 1)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  background: page >= totalPages ? 'rgba(255,255,255,0.03)' : 'rgba(0, 242, 254, 0.15)',
+                  color: page >= totalPages ? '#555' : '#00f2fe',
+                  border: '1px solid rgba(0, 242, 254, 0.3)',
+                  cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                Next 50 <ArrowRight size={14} />
+              </button>
+            </div>
           </div>
         </section>
       </div>

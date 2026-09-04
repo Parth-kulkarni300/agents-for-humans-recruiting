@@ -17,9 +17,17 @@ Thumbs.db
 # Virtual environments
 venv/
 .venv/
-env/
+# Environment & Secrets (NEVER push .env keys to git)
+.env
+.env.local
+.env.*
 
-# Generated models and embeddings (Large files)
+# Generated files & submission outputs
+submission.xlsx
+node_modules/
+dist/
+build/
 *.npy
-candidate_ids.json
+backend/*.npy
+backend/candidate_ids.json
 

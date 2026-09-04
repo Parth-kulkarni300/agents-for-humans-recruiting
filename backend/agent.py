@@ -9,13 +9,16 @@ from backend.ranker import is_honeypot, is_consulting_only, score_candidate, ran
 
 logger = logging.getLogger("recruiter-agent")
 
-# Global candidate store
+# Global candidate store & stats
 CANDIDATES = []
 ACTIVE_SHORTLIST = []
+TOTAL_INITIAL_CANDIDATES = 0
+HONEYPOT_COUNT = 0
+ELIGIBLE_CANDIDATES = 0
 
 def load_candidates_file(file_path: str):
     """Loads candidates from JSONL into memory once at startup."""
-    global CANDIDATES
+    global CANDIDATES, TOTAL_INITIAL_CANDIDATES, ELIGIBLE_CANDIDATES
     CANDIDATES.clear()
     
     path = Path(file_path)
@@ -35,7 +38,9 @@ def load_candidates_file(file_path: str):
             for line in f:
                 if line.strip():
                     CANDIDATES.append(json.loads(line))
-        logger.info(f"Successfully loaded {len(CANDIDATES)} candidate profiles.")
+        TOTAL_INITIAL_CANDIDATES = len(CANDIDATES)
+        logger.info(f"Successfully loaded {len(CANDIDATES)} candidate profiles. Running initial integrity audit...")
+        audit_candidate_integrity()
         return True
     except Exception as e:
         logger.error(f"Error loading candidates: {e}")
@@ -49,11 +54,14 @@ def audit_candidate_integrity() -> str:
     Identifies and removes fake profiles (honeypots) created with logical contradictions.
     Returns: A summary message listing the number of deleted honeypots and remaining candidates.
     """
-    global CANDIDATES
+    global CANDIDATES, TOTAL_INITIAL_CANDIDATES, HONEYPOT_COUNT, ELIGIBLE_CANDIDATES
     if not CANDIDATES:
         return "Error: Candidate database is empty. Please load candidates first."
         
     initial_count = len(CANDIDATES)
+    if TOTAL_INITIAL_CANDIDATES == 0:
+        TOTAL_INITIAL_CANDIDATES = initial_count
+        
     clean_candidates = []
     honeypot_count = 0
     reasons_summary = {}
@@ -67,6 +75,8 @@ def audit_candidate_integrity() -> str:
             clean_candidates.append(c)
             
     CANDIDATES = clean_candidates
+    HONEYPOT_COUNT = honeypot_count
+    ELIGIBLE_CANDIDATES = len(CANDIDATES)
     
     summary = (
         f"Successfully ran the 5-Point Anomaly Firewall across {initial_count} candidate profiles.\n"
@@ -82,48 +92,47 @@ def audit_candidate_integrity() -> str:
 @tool
 def apply_consulting_filter() -> str:
     """
-    Filters out candidates who have spent their entire career at IT consulting/services firms
-    (e.g., TCS, Wipro, Infosys, Accenture, Cognizant, Capgemini).
-    Returns: A status message with count of filtered profiles.
+    Evaluates candidate work history for IT consulting/services experience
+    (e.g., TCS, Wipro, Infosys, Accenture, Cognizant, Capgemini, Tech Mahindra, Mindtree, Mphasis, HCL).
+    Applies a soft score penalty (-0.05 adjustment) rather than banning/excluding candidates.
+    Returns: A status message detailing evaluated candidates.
     """
     global CANDIDATES
     if not CANDIDATES:
         return "Error: Candidate database is empty."
         
-    initial_count = len(CANDIDATES)
-    clean_candidates = [c for c in CANDIDATES if not is_consulting_only(c)]
-    excluded_count = initial_count - len(clean_candidates)
-    CANDIDATES = clean_candidates
+    consulting_count = sum(1 for c in CANDIDATES if is_consulting_only(c))
     
     return (
-        f"Consulting Exclusion Layer executed successfully.\n"
-        f"Excluded {excluded_count} candidates who only worked at IT consulting/services firms.\n"
-        f"Remaining active pool: {len(CANDIDATES)} candidates."
+        f"Consulting Assessment Layer executed successfully.\n"
+        f"Identified {consulting_count} candidates with IT consulting background.\n"
+        f"Applied soft score penalty (-0.05 adjustment) to consulting candidates. No candidates were banned or removed.\n"
+        f"Full active pool retained: {len(CANDIDATES)} candidates."
     )
 
 @tool
-def rank_and_reason_candidates(job_description: str, top_n: int = 10) -> str:
+def rank_and_reason_candidates(job_description: str, top_n: int = 50) -> str:
     """
     Uses BGE-small-v1.5 embeddings and title matching to rank the remaining candidate pool.
     Generates non-hallucinatory recruiter explanations for the top shortlist.
     Args:
         job_description: The job description text to match against.
-        top_n: Number of top candidates to return.
+        top_n: Number of top candidates to return in the shortlist (default 50).
     Returns: A formatted JSON summary of the top ranked candidates.
     """
     global CANDIDATES, ACTIVE_SHORTLIST
     if not CANDIDATES:
         return "Error: Candidate database is empty. Make sure you load and filter candidates first."
         
-    logger.info(f"Ranking candidates against Job Description: {job_description[:50]}...")
+    logger.info(f"Ranking {len(CANDIDATES)} candidates against Job Description: {job_description[:50]}...")
     
     # We call the core ranking logic from ranker.py
     results = rank_candidates(CANDIDATES, jd_text=job_description)
     ACTIVE_SHORTLIST.clear()
-    ACTIVE_SHORTLIST.extend(results[:top_n])
+    ACTIVE_SHORTLIST.extend(results)  # Store ALL ranked candidates for pagination
     
     summary_list = []
-    for c in ACTIVE_SHORTLIST:
+    for c in ACTIVE_SHORTLIST[:top_n]:
         summary_list.append({
             "rank": c["rank"],
             "candidate_id": c["candidate_id"],
@@ -132,12 +141,11 @@ def rank_and_reason_candidates(job_description: str, top_n: int = 10) -> str:
             "score": round(c["score"], 4),
             "reasoning": c["reasoning"]
         })
-        
     return json.dumps(summary_list, indent=2)
 
 
 # Recruiter Agent Initialization Helper
-def get_recruiter_agent(aws_access_key: str = None, aws_secret_key: str = None, aws_region: str = "us-east-1"):
+def get_recruiter_agent(aws_access_key: str = None, aws_secret_key: str = None, aws_region: str = "us-east-2"):
     """
     Instantiates and returns the Strands Agent. 
     If AWS credentials are provided, configures BedrockModel.
@@ -150,8 +158,8 @@ def get_recruiter_agent(aws_access_key: str = None, aws_secret_key: str = None, 
         "and 'rank_and_reason_candidates'.\n\n"
         "Always execute the pipeline logically when asked to find candidates:\n"
         "1. First, check and audit database integrity to clean fake profiles (honeypots).\n"
-        "2. Exclude consulting-only profiles if the job description mentions product companies.\n"
-        "3. Rank the remaining pool based on semantic similarity and print the ranked results with explanations.\n\n"
+        "2. Apply soft score adjustment (-0.05) to consulting profiles without banning them.\n"
+        "3. Rank the full candidate pool based on semantic similarity and return the top ranked results with explanations.\n\n"
         "Present your actions clearly, explaining which tools you are running and why."
     )
     
@@ -177,7 +185,7 @@ def get_recruiter_agent(aws_access_key: str = None, aws_secret_key: str = None, 
             
             # Using Claude 3 Sonnet or Haiku on Bedrock as our Strands Agent backbone
             model = BedrockModel(
-                model_id="anthropic.claude-3-sonnet-20240229-v1:0",
+                model_id="amazon.nova-pro-v1:0",
                 boto_session=session
             )
             logger.info("Initialized Strands Agent with AWS Bedrock Model.")
