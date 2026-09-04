@@ -10,6 +10,7 @@ from backend.ranker import is_honeypot, check_honeypot_reasons, is_consulting_on
 logger = logging.getLogger("recruiter-agent")
 
 # Global candidate store & stats
+RAW_INITIAL_CANDIDATES = []
 CANDIDATES = []
 ACTIVE_SHORTLIST = []
 HONEYPOT_CANDIDATES = []
@@ -19,8 +20,9 @@ ELIGIBLE_CANDIDATES = 0
 
 def load_candidates_file(file_path: str):
     """Loads candidates from JSONL into memory once at startup."""
-    global CANDIDATES, TOTAL_INITIAL_CANDIDATES, ELIGIBLE_CANDIDATES
+    global CANDIDATES, RAW_INITIAL_CANDIDATES, TOTAL_INITIAL_CANDIDATES, ELIGIBLE_CANDIDATES
     CANDIDATES.clear()
+    RAW_INITIAL_CANDIDATES.clear()
     
     path = Path(file_path)
     if not path.exists():
@@ -38,9 +40,10 @@ def load_candidates_file(file_path: str):
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
-                    CANDIDATES.append(json.loads(line))
-        TOTAL_INITIAL_CANDIDATES = len(CANDIDATES)
-        logger.info(f"Successfully loaded {len(CANDIDATES)} candidate profiles. Running initial integrity audit...")
+                    RAW_INITIAL_CANDIDATES.append(json.loads(line))
+        CANDIDATES = list(RAW_INITIAL_CANDIDATES)
+        TOTAL_INITIAL_CANDIDATES = len(RAW_INITIAL_CANDIDATES)
+        logger.info(f"Successfully loaded {len(RAW_INITIAL_CANDIDATES)} candidate profiles. Running initial integrity audit...")
         audit_candidate_integrity()
         return True
     except Exception as e:
@@ -55,20 +58,20 @@ def audit_candidate_integrity() -> str:
     Identifies and removes fake profiles (honeypots) created with logical contradictions.
     Returns: A summary message listing the number of deleted honeypots and remaining candidates.
     """
-    global CANDIDATES, TOTAL_INITIAL_CANDIDATES, HONEYPOT_COUNT, ELIGIBLE_CANDIDATES, HONEYPOT_CANDIDATES
-    if not CANDIDATES:
+    global CANDIDATES, RAW_INITIAL_CANDIDATES, TOTAL_INITIAL_CANDIDATES, HONEYPOT_COUNT, ELIGIBLE_CANDIDATES, HONEYPOT_CANDIDATES
+    source_candidates = RAW_INITIAL_CANDIDATES if RAW_INITIAL_CANDIDATES else CANDIDATES
+    if not source_candidates:
         return "Error: Candidate database is empty. Please load candidates first."
         
-    initial_count = len(CANDIDATES)
-    if TOTAL_INITIAL_CANDIDATES == 0:
-        TOTAL_INITIAL_CANDIDATES = initial_count
+    initial_count = len(source_candidates)
+    TOTAL_INITIAL_CANDIDATES = initial_count
         
     clean_candidates = []
     HONEYPOT_CANDIDATES.clear()
     honeypot_count = 0
     reasons_summary = {}
     
-    for idx, c in enumerate(CANDIDATES):
+    for idx, c in enumerate(source_candidates):
         hp_flag, reasons = check_honeypot_reasons(c)
         if hp_flag:
             honeypot_count += 1

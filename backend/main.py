@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 import re
@@ -336,6 +337,8 @@ async def upload_candidates_batch(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Only JSONL or CSV formats are supported.")
             
         # REPLACE pool (not append) — critical for jury compatibility
+        agent_mod.RAW_INITIAL_CANDIDATES.clear()
+        agent_mod.RAW_INITIAL_CANDIDATES.extend(new_candidates)
         agent_mod.CANDIDATES.clear()
         agent_mod.CANDIDATES.extend(new_candidates)
         agent_mod.TOTAL_INITIAL_CANDIDATES = len(new_candidates)
