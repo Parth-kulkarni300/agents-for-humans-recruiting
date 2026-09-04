@@ -292,6 +292,69 @@ export default function RecruitShieldApp() {
   // Open to relocation
   const [openToRelocation, setOpenToRelocation] = useState(false);
 
+  // Dynamic extraction hook for typed, pasted, or uploaded JDs
+  useEffect(() => {
+    if (!jd || !jd.trim()) return;
+
+    const text = jd.toLowerCase();
+
+    // Dynamic location extraction (Bangalore/Banglore/Bengaluru, Pune, Hyderabad, Mumbai, Delhi, etc.)
+    const foundLocs = new Set<string>();
+    const locMap: Record<string, string> = {
+      bangalore: "Bangalore", bengaluru: "Bangalore", banglore: "Bangalore", blr: "Bangalore",
+      pune: "Pune", pnq: "Pune", mumbai: "Mumbai", bombay: "Mumbai", hyderabad: "Hyderabad", hyd: "Hyderabad",
+      delhi: "Delhi NCR", "new delhi": "Delhi NCR", ncr: "Delhi NCR", gurgaon: "Gurgaon", gurugram: "Gurgaon",
+      noida: "Noida", chennai: "Chennai", kolkata: "Kolkata", ahmedabad: "Ahmedabad", jaipur: "Jaipur",
+      kochi: "Kochi", chandigarh: "Chandigarh", indore: "Indore", surat: "Surat", coimbatore: "Coimbatore"
+    };
+    Object.entries(locMap).forEach(([alias, canonical]) => {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(?:^|\\b|\\s)${escaped}(?:$|\\b|\\s|[.,;:!?/\\-])`, 'i');
+      if (regex.test(text)) foundLocs.add(canonical);
+    });
+    if (foundLocs.size > 0) setJdLocations(Array.from(foundLocs));
+
+    // Dynamic skill extraction (C++, C#, Python, Java, JS, React, Node, SQL, AWS, etc.)
+    const foundSkills = new Set<string>();
+    const skillMap: Record<string, string> = {
+      "c++": "C++", cpp: "C++", "c#": "C#", csharp: "C#", python: "Python", py: "Python",
+      java: "Java", javascript: "JavaScript", js: "JavaScript", typescript: "TypeScript", ts: "TypeScript",
+      react: "React", "react.js": "React", reactjs: "React", "next.js": "Next.js", nextjs: "Next.js",
+      "node.js": "Node.js", nodejs: "Node.js", vue: "Vue.js", "vue.js": "Vue.js", angular: "Angular",
+      html: "HTML", css: "CSS", tailwind: "Tailwind", go: "Go", golang: "Go", rust: "Rust", ruby: "Ruby",
+      rails: "Ruby on Rails", php: "PHP", fastapi: "FastAPI", django: "Django", flask: "Flask",
+      springboot: "Spring Boot", "spring boot": "Spring Boot", sql: "SQL", mysql: "MySQL",
+      postgresql: "PostgreSQL", postgres: "PostgreSQL", mongodb: "MongoDB", mongo: "MongoDB",
+      redis: "Redis", aws: "AWS", gcp: "GCP", azure: "Azure", docker: "Docker", kubernetes: "Kubernetes",
+      k8s: "Kubernetes", git: "Git", linux: "Linux", api: "REST API", "rest api": "REST API",
+      graphql: "GraphQL", "machine learning": "Machine Learning", ml: "Machine Learning",
+      "deep learning": "Deep Learning", pytorch: "PyTorch", tensorflow: "TensorFlow", keras: "Keras",
+      nlp: "NLP", llm: "LLM", pandas: "Pandas", numpy: "NumPy"
+    };
+
+    Object.entries(skillMap).forEach(([kw, canonical]) => {
+      const isSpecial = !/^[a-zA-Z0-9]+$/.test(kw) || kw.length <= 2;
+      const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = isSpecial
+        ? `(?:^|\\b|\\s)${escaped}(?:$|\\b|\\s|[.,;:!?/\\-])`
+        : `\\b${escaped}\\b`;
+      const regex = new RegExp(pattern, 'i');
+      if (regex.test(text)) foundSkills.add(canonical);
+    });
+    if (foundSkills.size > 0) {
+      const list = Array.from(foundSkills);
+      setJdSkills(list);
+      setSelectedSkills(list);
+    }
+
+    // Dynamic work mode extraction
+    const foundModes = new Set<string>();
+    if (/remote|wfh|work from home/i.test(text)) foundModes.add("Remote");
+    if (/hybrid|flexible/i.test(text)) foundModes.add("Hybrid");
+    if (/on-site|onsite|in-office|office/i.test(text)) foundModes.add("On-site");
+    if (foundModes.size > 0) setJdWorkModes(Array.from(foundModes));
+  }, [jd]);
+
   const expBucketMatch = (exp: number) => {
     if (expBuckets.length === 0) return true;
     return expBuckets.some(b => {
@@ -955,17 +1018,16 @@ function Pipeline({
               Min. Match Score
             </div>
             <div className="fsb-score-row">
+              <div className="fsb-score-display">
+                <span className="fsb-score-num">{threshold}%</span>
+                <span className="fsb-score-label">min match threshold</span>
+              </div>
               <input
                 type="range" min="0" max="95" step="5"
                 value={threshold}
                 onChange={(e) => setThreshold(+e.target.value)}
-                className="fsb-range"
-                style={{ width: '100%' }}
+                className="fsb-single-slider"
               />
-              <div className="fsb-score-display">
-                <span className="fsb-score-num">{threshold}</span>
-                <span className="fsb-score-label">min score</span>
-              </div>
             </div>
           </div>
 
