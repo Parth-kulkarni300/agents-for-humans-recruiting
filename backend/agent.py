@@ -41,7 +41,8 @@ def load_candidates_file(file_path: str):
             for line in f:
                 if line.strip():
                     RAW_INITIAL_CANDIDATES.append(json.loads(line))
-        CANDIDATES = list(RAW_INITIAL_CANDIDATES)
+        CANDIDATES.clear()
+        CANDIDATES.extend(RAW_INITIAL_CANDIDATES)
         TOTAL_INITIAL_CANDIDATES = len(RAW_INITIAL_CANDIDATES)
         logger.info(f"Successfully loaded {len(RAW_INITIAL_CANDIDATES)} candidate profiles. Running initial integrity audit...")
         audit_candidate_integrity()
@@ -90,7 +91,8 @@ def audit_candidate_integrity() -> str:
         else:
             clean_candidates.append(c)
             
-    CANDIDATES = clean_candidates
+    CANDIDATES.clear()
+    CANDIDATES.extend(clean_candidates)
     ELIGIBLE_CANDIDATES = len(CANDIDATES)
     HONEYPOT_COUNT = len(HONEYPOT_CANDIDATES)
     

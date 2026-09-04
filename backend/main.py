@@ -17,11 +17,10 @@ from pypdf import PdfReader
 import zipfile
 import xml.etree.ElementTree as ET
 
+import backend.agent as agent_mod
 from backend.agent import (
     load_candidates_file, 
     get_recruiter_agent, 
-    CANDIDATES, 
-    ACTIVE_SHORTLIST,
     audit_candidate_integrity,
     apply_consulting_filter,
     rank_and_reason_candidates
@@ -59,8 +58,8 @@ def startup_event():
 def health_check():
     return {
         "status": "healthy",
-        "database_loaded": len(CANDIDATES) > 0,
-        "total_candidates": len(CANDIDATES),
+        "database_loaded": len(agent_mod.CANDIDATES) > 0,
+        "total_candidates": len(agent_mod.CANDIDATES),
         "embeddings_loaded": EMBEDDINGS_LOADED,
         "embeddings_count": EMBEDDINGS_COUNT
     }
@@ -69,7 +68,7 @@ def health_check():
 def force_load_database(path: str = CANDIDATE_DB_PATH):
     success = load_candidates_file(path)
     if success:
-        return {"status": "success", "count": len(CANDIDATES)}
+        return {"status": "success", "count": len(agent_mod.CANDIDATES)}
     else:
         raise HTTPException(status_code=400, detail="Failed to load candidates database from the specified path.")
 
@@ -79,9 +78,7 @@ def run_agent_chat(req: ChatRequest):
     Main endpoint for chatting with the recruiter agent.
     Tries Bedrock first, falls back to direct tool execution if unavailable.
     """
-    global CANDIDATES, ACTIVE_SHORTLIST
-    
-    if not CANDIDATES:
+    if not agent_mod.CANDIDATES:
         raise HTTPException(status_code=400, detail="No candidates loaded. Please upload a candidates file first.")
     
     # Try Bedrock Agent first
