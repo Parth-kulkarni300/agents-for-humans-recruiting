@@ -572,55 +572,51 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
         
     profile = cand.get("profile", {})
     
-    # C. Country Check
     if is_default:
-        is_india_only = True
+        is_india_only = False
+        min_exp, max_exp = 0.0, 50.0
+        target_cities = []
     else:
-        # Check if India or Indian cities are mentioned in the JD. If not, don't force India
         is_india_only = any(kw in jd_text.lower() for kw in ["india", "pune", "noida", "delhi", "gurgaon", "ncr", "bangalore", "bengaluru", "hyderabad", "mumbai", "chennai", "kolkata"])
-        
+        min_exp, max_exp = extract_experience_range_from_jd(jd_text)
+        min_exp = max(0.0, min_exp - 1.0)
+        max_exp = max_exp + 3.0
+        tech_cities = ["pune", "noida", "gurgaon", "delhi", "ncr", "bangalore", "bengaluru", "hyderabad", "mumbai", "chennai", "kolkata", "san francisco", "london", "new york", "remote", "toronto"]
+        target_cities = [c for c in tech_cities if c in jd_text.lower()]
+
+    # C. Country Check — soft penalty instead of hard exclude
+    country_penalty = 0.0
     if is_india_only:
         country = profile.get("country", "").strip()
         if country.lower() != "india":
             LAST_RUN_STATS["country_filtered"] += 1
-            return None
+            country_penalty = -0.20  # soft penalty, not hard exclude
         
-    # D. Location & Relocation Check
-    if is_default:
-        target_cities = ["pune", "noida", "gurgaon", "delhi", "ncr"]
-    else:
-        tech_cities = ["pune", "noida", "gurgaon", "delhi", "ncr", "bangalore", "bengaluru", "hyderabad", "mumbai", "chennai", "kolkata", "san francisco", "london", "new york", "remote"]
-        target_cities = [c for c in tech_cities if c in jd_text.lower()]
-        if not target_cities:
-            target_cities = []
-            
+    # D. Location & Relocation Check — soft penalty instead of hard exclude
+    location_penalty = 0.0
     if target_cities:
         location = profile.get("location", "").lower()
         willing_relocate = cand.get("redrob_signals", {}).get("willing_to_relocate", False)
         is_matched_city = any(c in location for c in target_cities)
         if not is_matched_city and not willing_relocate:
             LAST_RUN_STATS["location_filtered"] += 1
-            return None
+            location_penalty = -0.15  # soft penalty, not hard exclude
         
-    # E. Experience Check
-    if is_default:
-        min_exp, max_exp = 4.0, 12.0
-    else:
-        min_exp, max_exp = extract_experience_range_from_jd(jd_text)
-        # Apply a buffer of -1.0 and +3.0 to keep the same logic style, or just make it match the range
-        min_exp = max(0.0, min_exp - 1.0)
-        max_exp = max_exp + 3.0
-        
+    # E. Experience Check — soft penalty instead of hard exclude
+    exp_penalty = 0.0
     years_exp = profile.get("years_of_experience", 0)
-    if years_exp < min_exp or years_exp > max_exp:
+    if years_exp < min_exp:
         LAST_RUN_STATS["experience_filtered"] += 1
-        return None
+        exp_penalty = -0.15 * (min_exp - years_exp) / max(min_exp, 1)  # scale by how far off
+    elif years_exp > max_exp:
+        LAST_RUN_STATS["experience_filtered"] += 1
+        exp_penalty = -0.10
         
     # 2. Compute scores
     title_s = calculate_title_score(cand, jd_title_keywords=None if is_default else jd_title_keywords)
     if title_s == 0.0:
         LAST_RUN_STATS["title_filtered"] += 1
-        return None
+        title_s = 0.01  # keep candidate in pool with minimal title score, don't hard-exclude
         
     skill_s = calculate_skill_score(cand, jd_skills=None if is_default else jd_skills)
     
@@ -681,7 +677,8 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
     base_score += career_s * 0.3  # career description bonus — "production retrieval" beats pure skill lists
     base_score += edu_score + github_score + assess_score + completeness_score
     
-    # Soft consulting penalty (-0.05 score adjustment instead of ban)
+    # Apply soft penalties (country, location, experience, consulting)
+    base_score += country_penalty + location_penalty + exp_penalty
     if is_consulting:
         base_score -= 0.05
 

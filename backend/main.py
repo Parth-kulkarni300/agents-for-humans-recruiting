@@ -188,9 +188,9 @@ def get_shortlist(page: int = 1, limit: int = 50):
     global ACTIVE_SHORTLIST, CANDIDATES
     import backend.agent as agent_mod
     
-    total_candidates = agent_mod.TOTAL_INITIAL_CANDIDATES
+    total_candidates = agent_mod.TOTAL_INITIAL_CANDIDATES if agent_mod.TOTAL_INITIAL_CANDIDATES > 0 else len(agent_mod.CANDIDATES)
     eligible_candidates = agent_mod.ELIGIBLE_CANDIDATES if agent_mod.ELIGIBLE_CANDIDATES > 0 else len(agent_mod.CANDIDATES)
-    honeypots = agent_mod.HONEYPOT_COUNT
+    honeypots = max(0, total_candidates - eligible_candidates)
     
     source_pool = ACTIVE_SHORTLIST if ACTIVE_SHORTLIST else [
         {

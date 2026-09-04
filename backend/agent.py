@@ -75,8 +75,11 @@ def audit_candidate_integrity() -> str:
             clean_candidates.append(c)
             
     CANDIDATES = clean_candidates
-    HONEYPOT_COUNT = honeypot_count
     ELIGIBLE_CANDIDATES = len(CANDIDATES)
+    if TOTAL_INITIAL_CANDIDATES > 0:
+        HONEYPOT_COUNT = max(0, TOTAL_INITIAL_CANDIDATES - ELIGIBLE_CANDIDATES)
+    else:
+        HONEYPOT_COUNT = honeypot_count
     
     summary = (
         f"Successfully ran the 5-Point Anomaly Firewall across {initial_count} candidate profiles.\n"
