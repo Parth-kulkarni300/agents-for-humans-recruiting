@@ -252,6 +252,15 @@ def get_shortlist(page: int = 1, limit: int = 50):
         "shortlist": summary_list
     }
 
+@app.get("/honeypots")
+def get_honeypots():
+    """Fetches the list of identified honeypot (anomalous/rejected) candidates with rejection reasons."""
+    import backend.agent as agent_mod
+    return {
+        "count": len(agent_mod.HONEYPOT_CANDIDATES),
+        "honeypots": agent_mod.HONEYPOT_CANDIDATES
+    }
+
 @app.get("/export")
 def export_shortlist_excel():
     """Generates the final submission.xlsx file on the fly and downloads it."""

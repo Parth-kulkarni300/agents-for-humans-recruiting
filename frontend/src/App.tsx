@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   BarChart3,
@@ -304,6 +306,24 @@ export default function RecruitShieldApp() {
     }
   };
 
+  const [showHoneypotsModal, setShowHoneypotsModal] = useState(false);
+  const [honeypotList, setHoneypotList] = useState<any[]>([]);
+  const [honeypotLoading, setHoneypotLoading] = useState(false);
+
+  const fetchHoneypots = async () => {
+    setHoneypotLoading(true);
+    setShowHoneypotsModal(true);
+    try {
+      const res = await fetch("http://127.0.0.1:8000/honeypots");
+      const data = await res.json();
+      setHoneypotList(data.honeypots || []);
+    } catch (e) {
+      console.error("Failed to fetch honeypots", e);
+    } finally {
+      setHoneypotLoading(false);
+    }
+  };
+
   if (screen === "landing")
     return <Landing onLaunch={() => setScreen("ingest")} />;
   if (screen === "ingest")
@@ -328,30 +348,39 @@ export default function RecruitShieldApp() {
       <DeepDive candidate={selected} onBack={() => setScreen("pipeline")} />
     );
   return (
-    <Pipeline
-      candidates={candidates}
-      filtered={filtered}
-      stats={stats}
-      page={page}
-      totalPages={totalPages}
-      onPageChange={(p) => fetchShortlist(p)}
-      query={query}
-      setQuery={setQuery}
-      threshold={threshold}
-      setThreshold={setThreshold}
-      minExp={minExp}
-      setMinExp={setMinExp}
-      locations={locations}
-      setLocations={setLocations}
-      jdSkills={jdSkills}
-      selectedSkills={selectedSkills}
-      setSelectedSkills={setSelectedSkills}
-      onBack={() => setScreen("ingest")}
-      onSelect={(c) => {
-        setSelected(c);
-        setScreen("deepdive");
-      }}
-    />
+    <>
+      <Pipeline
+        candidates={candidates}
+        filtered={filtered}
+        stats={stats}
+        page={page}
+        totalPages={totalPages}
+        onPageChange={(p) => fetchShortlist(p)}
+        query={query}
+        setQuery={setQuery}
+        threshold={threshold}
+        setThreshold={setThreshold}
+        minExp={minExp}
+        setMinExp={setMinExp}
+        locations={locations}
+        setLocations={setLocations}
+        jdSkills={jdSkills}
+        selectedSkills={selectedSkills}
+        setSelectedSkills={setSelectedSkills}
+        onBack={() => setScreen("ingest")}
+        onSelect={(c) => {
+          setSelected(c);
+          setScreen("deepdive");
+        }}
+        onOpenHoneypots={fetchHoneypots}
+      />
+      <HoneypotModal
+        isOpen={showHoneypotsModal}
+        onClose={() => setShowHoneypotsModal(false)}
+        honeypots={honeypotList}
+        loading={honeypotLoading}
+      />
+    </>
   );
 }
 
@@ -741,6 +770,7 @@ function Pipeline({
   setSelectedSkills,
   onBack,
   onSelect,
+  onOpenHoneypots,
 }: {
   candidates: Candidate[];
   filtered: Candidate[];
@@ -761,6 +791,7 @@ function Pipeline({
   setSelectedSkills: (s: string[]) => void;
   onBack: () => void;
   onSelect: (c: Candidate) => void;
+  onOpenHoneypots: () => void;
 }) {
   const toggle = (v: string) =>
     setLocations(
@@ -910,7 +941,9 @@ function Pipeline({
             <Metric 
               label="HONEYPOT PROFILES" 
               value={stats.total_candidates > 0 ? stats.honeypot_count.toLocaleString() : "Loading…"} 
-              change="Fake profiles caught" 
+              change="Click to inspect trap list" 
+              clickable={true}
+              onClick={onOpenHoneypots}
             />
           </div>
           <div className="candidate-table">
@@ -1032,17 +1065,52 @@ function Metric({
   label,
   value,
   change,
+  onClick,
+  clickable = false,
 }: {
   label: string;
   value: string;
   change: string;
+  onClick?: () => void;
+  clickable?: boolean;
 }) {
   return (
-    <div className="metric">
-      <span className="micro-label">{label}</span>
+    <div
+      className="metric"
+      onClick={onClick}
+      style={{
+        cursor: clickable ? "pointer" : "default",
+        transition: "all 0.2s ease",
+        borderColor: clickable ? "rgba(239, 68, 68, 0.4)" : undefined,
+        background: clickable
+          ? "linear-gradient(145deg, rgba(239, 68, 68, 0.12) 0%, rgba(17, 26, 38, 1) 100%)"
+          : undefined,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span className="micro-label" style={{ color: clickable ? "#f87171" : undefined }}>
+          {label}
+        </span>
+        {clickable && (
+          <span
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              color: "#ef4444",
+              background: "rgba(239, 68, 68, 0.15)",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            INSPECT LIST ➔
+          </span>
+        )}
+      </div>
       <div>
-        <b>{value}</b>
-        <em>{change}</em>
+        <b style={{ color: clickable ? "#fca5a5" : undefined }}>{value}</b>
+        <em style={{ color: clickable ? "#f87171" : undefined }}>{change}</em>
       </div>
     </div>
   );
@@ -1223,5 +1291,330 @@ function DeepDive({
         </div>
       </section>
     </main>
+  );
+}
+
+function HoneypotModal({
+  isOpen,
+  onClose,
+  honeypots,
+  loading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  honeypots: any[];
+  loading: boolean;
+}) {
+  const [search, setSearch] = useState("");
+
+  const filteredHoneypots = useMemo(() => {
+    if (!search.trim()) return honeypots;
+    const q = search.toLowerCase();
+    return honeypots.filter((item) => {
+      const serialStr = `#${item.serial_number}`.toLowerCase();
+      const numStr = String(item.serial_number);
+      const name = (item.name || "").toLowerCase();
+      const id = (item.candidate_id || "").toLowerCase();
+      const title = (item.current_title || "").toLowerCase();
+      const company = (item.current_company || "").toLowerCase();
+      const reasons = (item.reasons || []).join(" ").toLowerCase();
+      return (
+        serialStr.includes(q) ||
+        numStr === q ||
+        name.includes(q) ||
+        id.includes(q) ||
+        title.includes(q) ||
+        company.includes(q) ||
+        reasons.includes(q)
+      );
+    });
+  }, [honeypots, search]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(3, 7, 13, 0.85)",
+        backdropFilter: "blur(12px)",
+        padding: "20px",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "920px",
+          maxHeight: "85vh",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: "#0d141e",
+          border: "1px solid rgba(239, 68, 68, 0.4)",
+          borderRadius: "14px",
+          boxShadow: "0 25px 70px rgba(239, 68, 68, 0.2), 0 0 40px rgba(0, 0, 0, 0.8)",
+          overflow: "hidden",
+          color: "#e7edf6",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: "20px 24px",
+            borderBottom: "1px solid rgba(239, 68, 68, 0.25)",
+            background: "linear-gradient(90deg, rgba(239, 68, 68, 0.12) 0%, rgba(13, 20, 30, 0.95) 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            <div
+              style={{
+                width: "42px",
+                height: "42px",
+                borderRadius: "10px",
+                background: "rgba(239, 68, 68, 0.15)",
+                border: "1px solid rgba(239, 68, 68, 0.4)",
+                color: "#ef4444",
+                display: "grid",
+                placeItems: "center",
+                boxShadow: "0 0 15px rgba(239, 68, 68, 0.3)",
+              }}
+            >
+              <AlertTriangle size={22} />
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <h2 style={{ margin: 0, fontSize: "20px", fontWeight: 700, letterSpacing: "-0.03em" }}>
+                  Honeypot Trap Profiles Disqualified
+                </h2>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    padding: "3px 10px",
+                    borderRadius: "20px",
+                    background: "rgba(239, 68, 68, 0.2)",
+                    color: "#fca5a5",
+                    border: "1px solid rgba(239, 68, 68, 0.4)",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  {honeypots.length} REJECTED
+                </span>
+              </div>
+              <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#94a3b8" }}>
+                5-Point Anomaly Firewall identified synthetic trap profiles with logical contradictions.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              width: "36px",
+              height: "36px",
+              borderRadius: "8px",
+              background: "rgba(255, 255, 255, 0.05)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              color: "#94a3b8",
+              display: "grid",
+              placeItems: "center",
+              cursor: "pointer",
+            }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Search Input Bar */}
+        <div style={{ padding: "14px 24px", borderBottom: "1px solid #1e2b3b", background: "#0b1018" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "0 14px",
+              height: "40px",
+              background: "#111923",
+              border: "1px solid #2a394b",
+              borderRadius: "8px",
+              color: "#94a3b8",
+            }}
+          >
+            <Search size={16} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by Serial #, Candidate Name, ID, or Rejection Reason..."
+              style={{
+                flex: 1,
+                background: "none",
+                border: "none",
+                outline: "none",
+                color: "#e7edf6",
+                fontSize: "14px",
+              }}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer" }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Candidate List */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+          {loading ? (
+            <div style={{ padding: "50px", textAlign: "center", color: "#94a3b8" }}>
+              <span className="spinner" style={{ width: "24px", height: "24px" }} />
+              <div style={{ marginTop: "12px" }}>Scanning honeypot log files...</div>
+            </div>
+          ) : filteredHoneypots.length === 0 ? (
+            <div style={{ padding: "60px 20px", textAlign: "center", color: "#64748b" }}>
+              <AlertCircle size={32} style={{ marginBottom: "10px", color: "#ef4444" }} />
+              <div style={{ fontSize: "16px", fontWeight: 600, color: "#94a3b8" }}>
+                {search ? "No honeypot profiles match your search criteria" : "No honeypot profiles found in dataset"}
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {filteredHoneypots.map((item, idx) => (
+                <div
+                  key={item.candidate_id || idx}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "85px 240px 1fr",
+                    gap: "16px",
+                    alignItems: "start",
+                    padding: "16px",
+                    borderRadius: "10px",
+                    background: "rgba(17, 25, 35, 0.7)",
+                    border: "1px solid rgba(239, 68, 68, 0.2)",
+                  }}
+                >
+                  {/* Serial Number Badge */}
+                  <div>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        padding: "4px 9px",
+                        borderRadius: "6px",
+                        background: "rgba(239, 68, 68, 0.15)",
+                        color: "#f87171",
+                        border: "1px solid rgba(239, 68, 68, 0.3)",
+                      }}
+                    >
+                      #{String(item.serial_number).padStart(2, "0")}
+                    </span>
+                  </div>
+
+                  {/* Candidate Identity */}
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: "15px", color: "#f3f4f6" }}>
+                      {item.name}
+                    </div>
+                    <div style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "#94a3b8", marginTop: "2px" }}>
+                      ID: {item.candidate_id}
+                    </div>
+                    <div style={{ fontSize: "13px", color: "#64748b", marginTop: "4px" }}>
+                      {item.current_title} {item.current_company !== "N/A" ? `@ ${item.current_company}` : ""}
+                    </div>
+                  </div>
+
+                  {/* Rejection Reasons (Line-by-line) */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.08em",
+                        color: "#ef4444",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <AlertTriangle size={12} />
+                      REJECTION REASON{item.reasons && item.reasons.length > 1 ? "S" : ""}:
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {(item.reasons || []).map((reason: string, rIdx: number) => (
+                        <div
+                          key={rIdx}
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: "8px",
+                            padding: "8px 12px",
+                            borderRadius: "6px",
+                            background: "rgba(239, 68, 68, 0.08)",
+                            border: "1px solid rgba(239, 68, 68, 0.2)",
+                            fontSize: "13px",
+                            color: "#fca5a5",
+                            lineHeight: "1.4",
+                          }}
+                        >
+                          <span style={{ color: "#ef4444", fontWeight: 700, fontSize: "12px" }}>•</span>
+                          <span>{reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            padding: "14px 24px",
+            borderTop: "1px solid #1e2b3b",
+            background: "#0b1018",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            fontSize: "13px",
+            color: "#64748b",
+          }}
+        >
+          <span>
+            Showing <strong style={{ color: "#fca5a5" }}>{filteredHoneypots.length}</strong> of {honeypots.length} total trap profiles
+          </span>
+          <button
+            onClick={onClose}
+            style={{
+              padding: "7px 16px",
+              borderRadius: "6px",
+              background: "rgba(255, 255, 255, 0.08)",
+              border: "1px solid rgba(255, 255, 255, 0.15)",
+              color: "#e2e8f0",
+              fontWeight: 600,
+              fontSize: "13px",
+              cursor: "pointer",
+            }}
+          >
+            Close Window
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

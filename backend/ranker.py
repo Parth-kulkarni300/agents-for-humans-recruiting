@@ -74,18 +74,19 @@ def parse_date(date_str):
     except ValueError:
         return None
 
-def is_honeypot(cand):
+def check_honeypot_reasons(cand):
     """
     Check for database inconsistencies and logical contradictions that identify honeypots.
-    Returns: (is_honeypot_bool, reason_string)
+    Returns: (is_honeypot_bool, list_of_reasons)
     """
+    reasons = []
     signals = cand.get("redrob_signals", {})
     signup = parse_date(signals.get("signup_date"))
     active = parse_date(signals.get("last_active_date"))
     
     # 1. Signup date after last active date
     if signup and active and signup > active:
-        return True, "Signup date is after last active date."
+        reasons.append(f"Signup date ({signals.get('signup_date')}) is after last active date ({signals.get('last_active_date')}).")
 
     # 2. Skill duration exceeds total years of experience + buffer
     profile = cand.get("profile", {})
@@ -93,14 +94,14 @@ def is_honeypot(cand):
     for s in cand.get("skills", []):
         dur_years = s.get("duration_months", 0) / 12.0
         if dur_years > years_exp + 1.5:
-            return True, f"Skill '{s['name']}' duration ({dur_years:.1f} yrs) exceeds total experience ({years_exp:.1f} yrs)."
+            reasons.append(f"Skill '{s['name']}' duration ({dur_years:.1f} yrs) exceeds total experience ({years_exp:.1f} yrs).")
             
     # 3. Expert/Advanced skill with 0 duration
     for s in cand.get("skills", []):
         if s.get("proficiency") in ["expert", "advanced"] and s.get("duration_months", 0) == 0:
-            return True, f"Expert/Advanced skill '{s['name']}' has 0 months of usage."
+            reasons.append(f"Expert/Advanced skill '{s['name']}' has 0 months of usage.")
             
-    # 4. Job start date before company founding year
+    # 4. Job start date before company founding year & job duration exceeds company age
     career = cand.get("career_history", [])
     for job in career:
         comp = job.get("company", "")
@@ -111,16 +112,23 @@ def is_honeypot(cand):
                 try:
                     start_year = int(start_date_str.split("-")[0])
                     if start_year < founding_year:
-                        return True, f"Worked at {comp} starting in {start_year}, but it was founded in {founding_year}."
+                        reasons.append(f"Worked at {comp} starting in {start_year}, but company was founded in {founding_year}.")
                 except:
                     pass
-            # 5. Job duration exceeds company age
             dur_years = job.get("duration_months", 0) / 12.0
             max_dur = CURRENT_REF_DATE.year - founding_year
             if dur_years > max_dur:
-                return True, f"Job duration at {comp} is {dur_years:.1f} yrs, but company was founded {max_dur} years ago."
+                reasons.append(f"Job duration at {comp} is {dur_years:.1f} yrs, but company was founded {max_dur} years ago.")
                 
-    return False, ""
+    return len(reasons) > 0, reasons
+
+def is_honeypot(cand):
+    """
+    Check for database inconsistencies and logical contradictions that identify honeypots.
+    Returns: (is_honeypot_bool, reason_string)
+    """
+    is_hp, reasons = check_honeypot_reasons(cand)
+    return is_hp, (reasons[0] if reasons else "")
 
 def is_consulting_only(cand):
     """

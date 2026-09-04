@@ -5,13 +5,14 @@ import numpy as np
 from pathlib import Path
 from strands import Agent, tool
 from strands.models import BedrockModel
-from backend.ranker import is_honeypot, is_consulting_only, score_candidate, rank_candidates
+from backend.ranker import is_honeypot, check_honeypot_reasons, is_consulting_only, score_candidate, rank_candidates
 
 logger = logging.getLogger("recruiter-agent")
 
 # Global candidate store & stats
 CANDIDATES = []
 ACTIVE_SHORTLIST = []
+HONEYPOT_CANDIDATES = []
 TOTAL_INITIAL_CANDIDATES = 0
 HONEYPOT_COUNT = 0
 ELIGIBLE_CANDIDATES = 0
@@ -54,7 +55,7 @@ def audit_candidate_integrity() -> str:
     Identifies and removes fake profiles (honeypots) created with logical contradictions.
     Returns: A summary message listing the number of deleted honeypots and remaining candidates.
     """
-    global CANDIDATES, TOTAL_INITIAL_CANDIDATES, HONEYPOT_COUNT, ELIGIBLE_CANDIDATES
+    global CANDIDATES, TOTAL_INITIAL_CANDIDATES, HONEYPOT_COUNT, ELIGIBLE_CANDIDATES, HONEYPOT_CANDIDATES
     if not CANDIDATES:
         return "Error: Candidate database is empty. Please load candidates first."
         
@@ -63,23 +64,32 @@ def audit_candidate_integrity() -> str:
         TOTAL_INITIAL_CANDIDATES = initial_count
         
     clean_candidates = []
+    HONEYPOT_CANDIDATES.clear()
     honeypot_count = 0
     reasons_summary = {}
     
-    for c in CANDIDATES:
-        hp_flag, reason = is_honeypot(c)
+    for idx, c in enumerate(CANDIDATES):
+        hp_flag, reasons = check_honeypot_reasons(c)
         if hp_flag:
             honeypot_count += 1
-            reasons_summary[reason] = reasons_summary.get(reason, 0) + 1
+            primary_reason = reasons[0] if reasons else "Logical anomaly detected"
+            reasons_summary[primary_reason] = reasons_summary.get(primary_reason, 0) + 1
+            HONEYPOT_CANDIDATES.append({
+                "serial_number": idx + 1,
+                "candidate_id": c.get("candidate_id", f"C-{idx + 1}"),
+                "name": c.get("profile", {}).get("anonymized_name", f"Candidate-{idx + 1}"),
+                "current_title": c.get("profile", {}).get("current_title", "N/A"),
+                "current_company": c.get("profile", {}).get("current_company", "N/A"),
+                "location": c.get("profile", {}).get("location", "N/A"),
+                "years_exp": c.get("profile", {}).get("years_of_experience", 0.0),
+                "reasons": reasons
+            })
         else:
             clean_candidates.append(c)
             
     CANDIDATES = clean_candidates
     ELIGIBLE_CANDIDATES = len(CANDIDATES)
-    if TOTAL_INITIAL_CANDIDATES > 0:
-        HONEYPOT_COUNT = max(0, TOTAL_INITIAL_CANDIDATES - ELIGIBLE_CANDIDATES)
-    else:
-        HONEYPOT_COUNT = honeypot_count
+    HONEYPOT_COUNT = len(HONEYPOT_CANDIDATES)
     
     summary = (
         f"Successfully ran the 5-Point Anomaly Firewall across {initial_count} candidate profiles.\n"
