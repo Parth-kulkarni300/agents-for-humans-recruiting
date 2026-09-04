@@ -103,7 +103,7 @@ def run_agent_chat(req: ChatRequest):
             for tc in result.metrics.tool_calls:
                 tool_calls.append({"name": tc.name, "arguments": tc.arguments, "status": "success"})
         
-        return {"response": response_text, "tool_calls": tool_calls, "shortlist_count": len(ACTIVE_SHORTLIST)}
+        return {"response": response_text, "tool_calls": tool_calls, "shortlist_count": len(agent_mod.ACTIVE_SHORTLIST)}
         
     except Exception as bedrock_err:
         logger.warning(f"Bedrock unavailable, using Gemini fallback...")
@@ -149,12 +149,12 @@ def run_agent_chat(req: ChatRequest):
                 tool_results_text = "\n\n".join([f"Tool: {name}\nResult:\n{result}" for name, result in steps])
                 prompt = f"""You are RecruitShield AI, an expert autonomous recruiter co-pilot.
 
-You have just executed the full candidate screening pipeline using the Strands Agents SDK across {len(CANDIDATES)} candidates in the database. Here are the results from the three tools:
+You have just executed the full candidate screening pipeline using the Strands Agents SDK across {len(agent_mod.CANDIDATES)} candidates in the database. Here are the results from the three tools:
 
 {tool_results_text}
 
 Now provide a professional, clear summary as a recruiter co-pilot:
-1. State clearly that all {len(CANDIDATES)} loaded candidate profiles were scanned and scored by the algorithm, and explain why the top shortlist of candidates was selected.
+1. State clearly that all {len(agent_mod.CANDIDATES)} loaded candidate profiles were scanned and scored by the algorithm, and explain why the top shortlist of candidates was selected.
 2. What integrity anomalies (honeypots) were found and removed?
 3. Confirm that IT consulting profiles were given a soft penalty (-0.05 score adjustment) rather than being banned/excluded, allowing all qualified talent to remain in the active pool.
 4. Who are the top candidates in the shortlist and why do they stand out?
@@ -174,7 +174,7 @@ Keep it concise, insightful, and actionable for a recruiter."""
             response_text = "✅ **Pipeline Complete**\n\n" + "\n\n".join([f"**{n}**\n{r}" for n, r in steps])
         
         tool_calls = [{"name": n, "status": "success"} for n, _ in steps]
-        return {"response": response_text, "tool_calls": tool_calls, "shortlist_count": len(ACTIVE_SHORTLIST)}
+        return {"response": response_text, "tool_calls": tool_calls, "shortlist_count": len(agent_mod.ACTIVE_SHORTLIST)}
 
 
 
@@ -183,14 +183,13 @@ import math
 @app.get("/shortlist")
 def get_shortlist(page: int = 1, limit: int = 50):
     """Fetches the ranked candidate list with pagination support and KPI stats."""
-    global ACTIVE_SHORTLIST, CANDIDATES
     import backend.agent as agent_mod
     
     total_candidates = agent_mod.TOTAL_INITIAL_CANDIDATES if agent_mod.TOTAL_INITIAL_CANDIDATES > 0 else len(agent_mod.CANDIDATES)
     eligible_candidates = agent_mod.ELIGIBLE_CANDIDATES if agent_mod.ELIGIBLE_CANDIDATES > 0 else len(agent_mod.CANDIDATES)
     honeypots = max(0, total_candidates - eligible_candidates)
     
-    source_pool = ACTIVE_SHORTLIST if ACTIVE_SHORTLIST else [
+    source_pool = agent_mod.ACTIVE_SHORTLIST if agent_mod.ACTIVE_SHORTLIST else [
         {
             "rank": idx + 1,
             "candidate_id": c.get("candidate_id", f"C-{idx}"),
@@ -204,7 +203,7 @@ def get_shortlist(page: int = 1, limit: int = 50):
             "reasoning": "Candidate active in screening pool. Run agent to compute JD match score.",
             "candidate_raw": c
         }
-        for idx, c in enumerate(CANDIDATES)
+        for idx, c in enumerate(agent_mod.CANDIDATES)
     ]
     
     total_items = len(source_pool)
