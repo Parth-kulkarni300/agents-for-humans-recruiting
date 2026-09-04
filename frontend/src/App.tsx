@@ -344,7 +344,7 @@ export default function RecruitShieldApp() {
     if (foundSkills.size > 0) {
       const list = Array.from(foundSkills);
       setJdSkills(list);
-      setSelectedSkills(list);
+      // Keep selectedSkills empty [] so all candidates show initially until user ticks a skill
     }
 
     // Dynamic work mode extraction
