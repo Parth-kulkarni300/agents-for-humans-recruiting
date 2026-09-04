@@ -160,10 +160,10 @@ export default function RecruitShieldApp() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [stats, setStats] = useState({
-    total_candidates: 100000,
-    eligible_candidates: 87189,
-    honeypot_count: 12811,
-    total_ranked: 87189
+    total_candidates: 0,
+    eligible_candidates: 0,
+    honeypot_count: 0,
+    total_ranked: 0
   });
 
   // API: Fetch shortlist
@@ -181,15 +181,30 @@ export default function RecruitShieldApp() {
       const mapped = (data.shortlist || []).map((c: any) => {
         const tones = ["cyan", "violet", "blue", "orange", "green"];
         
-        // Map backend skills to v0 format
-        const uiSkills = (c.skills || []).map((s: string) => ({ name: s, level: "Advanced", value: 85 }));
+        // Map backend skills to v0 format — use real proficiency and duration
+        const proficiencyToLevel = (p: string) => {
+          const lp = (p || "").toLowerCase();
+          if (lp === "expert" || lp === "advanced") return "Expert";
+          if (lp === "intermediate") return "Advanced";
+          return "Intermediate";
+        };
+        const proficiencyToValue = (p: string, months: number) => {
+          const lp = (p || "").toLowerCase();
+          const base = lp === "expert" ? 88 : lp === "advanced" ? 78 : lp === "intermediate" ? 65 : 55;
+          return Math.min(99, base + Math.floor((months || 0) / 12));
+        };
+        const uiSkills = (c.skills || []).map((s: any) => ({
+          name: typeof s === "string" ? s : s.name,
+          level: typeof s === "string" ? "Advanced" : proficiencyToLevel(s.proficiency),
+          value: typeof s === "string" ? 75 : proficiencyToValue(s.proficiency, s.duration_months)
+        }));
         
-        // Map backend timeline to v0 format
+        // Map backend timeline to v0 format — use real date info
         const uiTimeline = c.career_history ? c.career_history.map((h: any) => ({
            company: h.company || "Unknown",
            title: h.title || "Role",
-           period: "Past",
-           impact: "Worked on various projects."
+           period: h.start_date ? `${h.start_date}${h.end_date ? " → " + h.end_date : " → Present"}` : "Past",
+           impact: h.description || h.responsibilities || "Contributed to company growth and product development."
         })) : [];
         
         // Map signals
@@ -875,17 +890,17 @@ function Pipeline({
           <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
             <Metric
               label="TOTAL CANDIDATES"
-              value={(stats.total_candidates || candidates.length).toLocaleString()}
+              value={stats.total_candidates > 0 ? stats.total_candidates.toLocaleString() : "Loading…"}
               change="Total in dataset"
             />
             <Metric
               label="ELIGIBLE CANDIDATES"
-              value={(stats.eligible_candidates || filtered.length).toLocaleString()}
+              value={stats.eligible_candidates > 0 ? stats.eligible_candidates.toLocaleString() : "Loading…"}
               change="Active screening pool"
             />
             <Metric 
               label="HONEYPOT PROFILES" 
-              value={(stats.honeypot_count && stats.honeypot_count > 0 ? stats.honeypot_count : (stats.total_candidates - stats.eligible_candidates)).toLocaleString()} 
+              value={stats.total_candidates > 0 ? stats.honeypot_count.toLocaleString() : "Loading…"} 
               change="Fake profiles caught" 
             />
           </div>
@@ -924,7 +939,7 @@ function Pipeline({
                     {c.location}
                   </span>
                   <span className="match-cell">
-                    <b>{c.score}.0</b>
+                    <b>{c.score}</b>
                     <span className="score-bar">
                       <i style={{ width: `${c.score}%` }} />
                     </span>

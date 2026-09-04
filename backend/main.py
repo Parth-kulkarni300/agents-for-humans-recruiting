@@ -219,7 +219,8 @@ def get_shortlist(page: int = 1, limit: int = 50):
     
     summary_list = []
     for c in page_items:
-        skills_list = [s["name"] for s in c["candidate_raw"].get("skills", [])]
+        # Return full skill objects so frontend can compute real proficiency bars
+        skills_list = c["candidate_raw"].get("skills", [])[:10]
         summary_list.append({
             "rank": c["rank"],
             "candidate_id": c["candidate_id"],
