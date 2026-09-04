@@ -221,7 +221,7 @@ export default function RecruitShieldApp() {
           rank: c.rank,
           name: c.name,
           role: c.current_title,
-          score: Math.round(c.score * 100), // convert 0-1 score to 0-100
+          score: Math.min(100, Math.round(c.score * 100)), // backend returns 0-1 normalized
           location: c.location,
           experience: c.years_exp,
           initials: (c.name || "CN").split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase(),
@@ -317,6 +317,10 @@ export default function RecruitShieldApp() {
         loading={loading}
         onBack={() => setScreen("landing")}
         onAnalyze={analyze}
+        onCandidatesUploaded={(count: number) => {
+          fetchShortlist(1);
+          alert(`✅ Loaded ${count.toLocaleString()} candidates. Pool replaced — ready to analyze!`);
+        }}
       />
     );
   if (screen === "deepdive")
@@ -569,6 +573,7 @@ function Ingest({
   loading,
   onBack,
   onAnalyze,
+  onCandidatesUploaded,
 }: {
   files: string[];
   setFiles: (x: string[]) => void;
@@ -578,6 +583,7 @@ function Ingest({
   loading: boolean;
   onBack: () => void;
   onAnalyze: () => void;
+  onCandidatesUploaded: (count: number) => void;
 }) {
   const addFiles = async (list: FileList | null, type: 'jd' | 'candidates') => {
     if (!list || list.length === 0) return;
@@ -598,8 +604,11 @@ function Ingest({
       const data = await res.json();
       
       if (type === 'jd') {
-         if (data.text) setJd(data.text);
-         if (data.metadata && data.metadata.skills_found) setJdSkills(data.metadata.skills_found);
+        if (data.text) setJd(data.text);
+        if (data.metadata && data.metadata.skills_found) setJdSkills(data.metadata.skills_found);
+      } else if (type === 'candidates') {
+        // Notify parent so it can refresh stats from backend
+        if (data.total_candidates) onCandidatesUploaded(data.total_candidates);
       }
     } catch (e) {
       console.error(e);

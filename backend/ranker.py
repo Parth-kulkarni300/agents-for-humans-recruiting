@@ -767,7 +767,18 @@ def rank_candidates(candidates_list, jd_text=""):
     # Sort by score desc, then by candidate_id asc
     scored.sort(key=lambda x: (-x["score"], x["candidate_id"]))
     
-    # Assign ranks and reasonings to all candidates
+    # Normalize scores to 0–1 range across the full pool so frontend
+    # can safely display as 0–100 without overflow
+    if len(scored) > 1:
+        max_s = scored[0]["score"]
+        min_s = scored[-1]["score"]
+        score_range = max_s - min_s if max_s != min_s else 1.0
+        for c in scored:
+            c["score"] = (c["score"] - min_s) / score_range
+    elif len(scored) == 1:
+        scored[0]["score"] = 1.0  # single candidate gets perfect score
+    
+    # Assign ranks and reasoning to all candidates
     ranked_results = []
     for idx, c in enumerate(scored):
         rank = idx + 1
