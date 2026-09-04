@@ -4,6 +4,7 @@ load_dotenv()
 import re
 import json
 import logging
+import numpy as np
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -282,7 +283,15 @@ def export_shortlist_excel():
 
 @app.post("/upload_candidates")
 async def upload_candidates_batch(file: UploadFile = File(...)):
-    """Ingests new candidate profiles via JSONL or CSV batch uploads."""
+    """
+    Ingests a new candidate pool via JSONL or CSV.
+    REPLACES the existing pool entirely (not append) so jury files work correctly.
+    After loading, auto-recomputes neural embeddings for the new candidates.
+    """
+    import backend.agent as agent_mod
+    from backend.ranker import get_sentence_model
+    import backend.ranker as ranker_mod
+
     global CANDIDATES
     filename = file.filename.lower()
     content = await file.read()
@@ -298,9 +307,8 @@ async def upload_candidates_batch(file: UploadFile = File(...)):
             import io
             df = pd.read_csv(io.BytesIO(content))
             for _, row in df.iterrows():
-                # Basic mapping from CSV to JSON schema
                 cand = {
-                    "candidate_id": str(row.get("candidate_id", f"C-{len(CANDIDATES)+len(new_candidates)}")),
+                    "candidate_id": str(row.get("candidate_id", f"C-{len(new_candidates)}")),
                     "profile": {
                         "anonymized_name": str(row.get("name", "Unknown")),
                         "headline": str(row.get("headline", "")),
@@ -316,17 +324,65 @@ async def upload_candidates_batch(file: UploadFile = File(...)):
                 }
                 new_candidates.append(cand)
         else:
-            raise HTTPException(status_code=400, detail="Only JSONL or CSV formats are supported for candidate batch uploads.")
+            raise HTTPException(status_code=400, detail="Only JSONL or CSV formats are supported.")
             
-        # Append to live DB
-        CANDIDATES.extend(new_candidates)
-        logger.info(f"Ingested {len(new_candidates)} new candidates. Total now: {len(CANDIDATES)}. Running integrity audit...")
+        # REPLACE pool (not append) — critical for jury compatibility
+        agent_mod.CANDIDATES.clear()
+        agent_mod.CANDIDATES.extend(new_candidates)
+        agent_mod.TOTAL_INITIAL_CANDIDATES = len(new_candidates)
+        agent_mod.ACTIVE_SHORTLIST.clear()
+        logger.info(f"Replaced candidate pool with {len(new_candidates)} candidates. Running integrity audit...")
         audit_candidate_integrity()
+        
+        # Auto-recompute neural embeddings for the new candidates
+        logger.info("Auto-computing neural embeddings for uploaded candidates...")
+        try:
+            model = get_sentence_model()
+            if model is not None:
+                texts = []
+                ids = []
+                for c in agent_mod.CANDIDATES:
+                    profile = c.get("profile", {})
+                    title = profile.get("current_title", "")
+                    headline = profile.get("headline", "")
+                    summary = profile.get("summary", "")
+                    texts.append(f"Title: {title}. Headline: {headline}. Summary: {summary}")
+                    ids.append(c["candidate_id"])
+                
+                batch_size = 512
+                all_embeddings = []
+                for i in range(0, len(texts), batch_size):
+                    batch = model.encode(texts[i:i+batch_size], normalize_embeddings=True, show_progress_bar=False)
+                    all_embeddings.append(batch)
+                
+                embeddings_matrix = np.vstack(all_embeddings)
+                
+                # Update ranker globals in-memory
+                ranker_mod.CANDIDATE_EMBEDDINGS = embeddings_matrix
+                ranker_mod.CANDIDATE_ID_TO_INDEX = {cid: idx for idx, cid in enumerate(ids)}
+                ranker_mod.EMBEDDINGS_LOADED = True
+                ranker_mod.EMBEDDINGS_COUNT = len(ids)
+                
+                # Persist to disk so reload survives restart
+                _backend_dir = Path(__file__).parent
+                np.save(_backend_dir / "candidate_embeddings.npy", embeddings_matrix)
+                import json as _json
+                with open(_backend_dir / "candidate_ids.json", "w") as f:
+                    _json.dump(ids, f)
+                
+                logger.info(f"Successfully computed and saved {len(ids)} embeddings for uploaded candidates.")
+                embeddings_status = f"Recomputed {len(ids)} neural embeddings"
+            else:
+                embeddings_status = "Embeddings skipped (model unavailable) — rule-based ranking active"
+        except Exception as emb_err:
+            logger.error(f"Embedding computation failed: {emb_err}")
+            embeddings_status = f"Embeddings failed ({emb_err}) — rule-based ranking active"
         
         return {
             "status": "success",
             "ingested_count": len(new_candidates),
-            "total_candidates": len(CANDIDATES)
+            "total_candidates": len(agent_mod.CANDIDATES),
+            "embeddings": embeddings_status
         }
     except Exception as e:
         logger.error(f"Error parsing candidate file {file.filename}: {e}")
