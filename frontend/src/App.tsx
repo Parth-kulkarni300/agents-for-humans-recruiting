@@ -44,6 +44,12 @@ type Candidate = {
   headline: string;
   raw: string;
   fit: string;
+  scoreBreakdown?: {
+    title_fit: number;
+    skill_coverage: number;
+    semantic_fit: number;
+    signal_bonus: number;
+  };
   willingToRelocate: boolean;
   highestDegree: string; // 'bachelor' | 'master' | 'phd' | 'other'
   signals: {
@@ -168,7 +174,9 @@ export default function RecruitShieldApp() {
   const [stats, setStats] = useState({
     total_candidates: 0,
     eligible_candidates: 0,
+    unaligned_jd_count: 0,
     honeypot_count: 0,
+    shortlisted_count: 0,
     total_ranked: 0
   });
 
@@ -244,6 +252,12 @@ export default function RecruitShieldApp() {
           headline: c.headline,
           raw: c.score ? c.score.toFixed(4) : "0.0000",
           fit: c.reasoning,
+          scoreBreakdown: c.score_breakdown || {
+            skill_coverage: Math.round(c.score * 85),
+            title_fit: Math.round(c.score * 90),
+            semantic_fit: Math.round(c.score * 88),
+            signal_bonus: 10
+          },
           willingToRelocate: !!(c.signals?.willing_to_relocate),
           highestDegree,
           signals: signals.length > 0 ? signals : [
@@ -291,6 +305,8 @@ export default function RecruitShieldApp() {
   const [eduLevels, setEduLevels] = useState<string[]>([]);
   // Open to relocation
   const [openToRelocation, setOpenToRelocation] = useState(false);
+  // Active category tab: 'eligible' (default) | 'unaligned' | 'all' | 'shortlisted'
+  const [activeTab, setActiveTab] = useState<'eligible' | 'unaligned' | 'all' | 'shortlisted'>('eligible');
 
   // Dynamic extraction hook for typed, pasted, or uploaded JDs
   useEffect(() => {
@@ -366,9 +382,24 @@ export default function RecruitShieldApp() {
     });
   };
 
+  const cutoff = threshold > 0 ? threshold : 55;
+
+  const categoryFiltered = useMemo(() => {
+    return candidates.filter((c) => {
+      if (activeTab === 'eligible') {
+        return c.score >= cutoff;
+      } else if (activeTab === 'unaligned') {
+        return c.score < cutoff;
+      } else if (activeTab === 'shortlisted') {
+        return (c as any).isShortlisted === true;
+      }
+      return true; // 'all'
+    });
+  }, [candidates, activeTab, cutoff]);
+
   const filtered = useMemo(
     () =>
-      candidates.filter((c) => {
+      categoryFiltered.filter((c) => {
         // Match score
         if (c.score < threshold) return false;
         // Experience bucket
@@ -388,7 +419,7 @@ export default function RecruitShieldApp() {
         if (!`${c.name} ${c.role} ${c.location}`.toLowerCase().includes(query.toLowerCase())) return false;
         return true;
       }),
-    [query, threshold, expBuckets, locations, selectedSkills, eduLevels, openToRelocation, candidates],
+    [query, threshold, expBuckets, locations, selectedSkills, eduLevels, openToRelocation, categoryFiltered],
   );
 
   const analyze = async () => {
@@ -477,6 +508,8 @@ export default function RecruitShieldApp() {
         stats={stats}
         page={page}
         totalPages={totalPages}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
         onPageChange={(p) => fetchShortlist(p)}
         query={query}
         setQuery={setQuery}
@@ -751,13 +784,18 @@ function Ingest({
 }) {
   const addFiles = async (list: FileList | null, type: 'jd' | 'candidates') => {
     if (!list || list.length === 0) return;
-    const file = list[0];
     
     // Optimistic UI update
     if (type === 'candidates') setFiles([...files, ...Array.from(list).map(f => f.name)]);
     
     const formData = new FormData();
-    formData.append("file", file);
+    if (type === 'jd') {
+      formData.append("file", list[0]);
+    } else {
+      for (let i = 0; i < list.length; i++) {
+        formData.append("files", list[i]);
+      }
+    }
     
     try {
       const endpoint = type === 'jd' ? '/upload_jd' : '/upload_candidates';
@@ -913,6 +951,8 @@ function Pipeline({
   setEduLevels,
   openToRelocation,
   setOpenToRelocation,
+  activeTab,
+  setActiveTab,
   onResetFilters,
   onBack,
   onSelect,
@@ -920,7 +960,9 @@ function Pipeline({
 }: {
   candidates: Candidate[];
   filtered: Candidate[];
-  stats: { total_candidates: number; eligible_candidates: number; honeypot_count: number; total_ranked: number };
+  stats: { total_candidates: number; eligible_candidates: number; unaligned_jd_count?: number; honeypot_count: number; shortlisted_count?: number; total_ranked: number };
+  activeTab: 'eligible' | 'unaligned' | 'all' | 'shortlisted';
+  setActiveTab: (tab: 'eligible' | 'unaligned' | 'all' | 'shortlisted') => void;
   page: number;
   totalPages: number;
   onPageChange: (p: number) => void;
@@ -1223,24 +1265,58 @@ function Pipeline({
               <ChevronDown size={14} />
             </button>
           </div>
-          <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+          <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
             <Metric
               label="TOTAL CANDIDATES"
               value={stats.total_candidates > 0 ? stats.total_candidates.toLocaleString() : "Loading…"}
-              change="Total in dataset"
+              change="Uploaded pool"
+              clickable={true}
+              active={activeTab === 'all'}
+              onClick={() => setActiveTab('all')}
             />
             <Metric
               label="ELIGIBLE CANDIDATES"
-              value={stats.eligible_candidates > 0 ? stats.eligible_candidates.toLocaleString() : "Loading…"}
-              change="Active screening pool"
+              value={stats.eligible_candidates > 0 ? stats.eligible_candidates.toLocaleString() : "0"}
+              change="Matches JD"
+              clickable={true}
+              active={activeTab === 'eligible'}
+              onClick={() => setActiveTab('eligible')}
+            />
+            <Metric
+              label="NOT ALIGNS TO JD"
+              value={(stats.unaligned_jd_count !== undefined ? stats.unaligned_jd_count : 0).toLocaleString()}
+              change="Fails JD"
+              clickable={true}
+              active={activeTab === 'unaligned'}
+              onClick={() => setActiveTab('unaligned')}
             />
             <Metric 
               label="HONEYPOT PROFILES" 
               value={stats.total_candidates > 0 ? stats.honeypot_count.toLocaleString() : "Loading…"} 
-              change="Click to inspect trap list" 
+              change="Click to inspect traps" 
               clickable={true}
+              isDanger={true}
               onClick={onOpenHoneypots}
             />
+            <Metric
+              label="SHORTLISTED"
+              value={(stats.shortlisted_count || 0).toString()}
+              change="Starred candidates"
+              clickable={true}
+              active={activeTab === 'shortlisted'}
+              onClick={() => setActiveTab('shortlisted')}
+            />
+          </div>
+          <div style={{ marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "14px", fontWeight: 600, color: "#e2e8f0" }}>
+              {activeTab === 'eligible' && "🟢 Displaying Eligible Candidates (Matching JD)"}
+              {activeTab === 'unaligned' && "🔴 Displaying Candidates Not Aligned to JD"}
+              {activeTab === 'all' && "🌐 Displaying All Candidates in Database"}
+              {activeTab === 'shortlisted' && "⭐ Displaying Shortlisted Candidates"}
+            </span>
+            <span style={{ fontSize: "12px", color: "#94a3b8" }}>
+              Dynamic Rank starting at #01
+            </span>
           </div>
           <div className="candidate-table">
             <div className="table-head">
@@ -1350,12 +1426,16 @@ function Metric({
   change,
   onClick,
   clickable = false,
+  active = false,
+  isDanger = false,
 }: {
   label: string;
   value: string;
   change: string;
   onClick?: () => void;
   clickable?: boolean;
+  active?: boolean;
+  isDanger?: boolean;
 }) {
   return (
     <div
@@ -1363,37 +1443,69 @@ function Metric({
       onClick={onClick}
       style={{
         cursor: clickable ? "pointer" : "default",
-        transition: "all 0.2s ease",
-        borderColor: clickable ? "rgba(239, 68, 68, 0.4)" : undefined,
-        background: clickable
-          ? "linear-gradient(145deg, rgba(239, 68, 68, 0.12) 0%, rgba(17, 26, 38, 1) 100%)"
-          : undefined,
+        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+        padding: "12px 14px",
+        borderRadius: "10px",
+        border: active
+          ? "1px solid #38bdf8"
+          : isDanger
+          ? "1px solid rgba(239, 68, 68, 0.4)"
+          : "1px solid rgba(255, 255, 255, 0.08)",
+        boxShadow: active
+          ? "0 0 14px rgba(56, 189, 248, 0.25)"
+          : isDanger
+          ? "0 0 10px rgba(239, 68, 68, 0.15)"
+          : "none",
+        background: active
+          ? "linear-gradient(145deg, rgba(56, 189, 248, 0.14) 0%, rgba(15, 23, 42, 0.95) 100%)"
+          : isDanger
+          ? "linear-gradient(145deg, rgba(239, 68, 68, 0.12) 0%, rgba(15, 23, 42, 0.95) 100%)"
+          : "linear-gradient(145deg, rgba(255, 255, 255, 0.03) 0%, rgba(15, 23, 42, 0.8) 100%)",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        minHeight: "72px"
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span className="micro-label" style={{ color: clickable ? "#f87171" : undefined }}>
-          {label}
-        </span>
-        {clickable && (
-          <span
-            style={{
-              fontSize: "10px",
-              fontWeight: 700,
-              color: "#ef4444",
-              background: "rgba(239, 68, 68, 0.15)",
-              padding: "2px 6px",
-              borderRadius: "4px",
-              border: "1px solid rgba(239, 68, 68, 0.3)",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            INSPECT LIST ➔
-          </span>
-        )}
-      </div>
-      <div>
-        <b style={{ color: clickable ? "#fca5a5" : undefined }}>{value}</b>
-        <em style={{ color: clickable ? "#f87171" : undefined }}>{change}</em>
+      <span
+        className="micro-label"
+        style={{
+          color: isDanger ? "#f87171" : active ? "#38bdf8" : "#94a3b8",
+          fontSize: "11px",
+          fontWeight: 700,
+          letterSpacing: "0.05em",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          textTransform: "uppercase",
+          marginBottom: "6px"
+        }}
+      >
+        {label}
+      </span>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+        <b
+          style={{
+            fontSize: "22px",
+            fontWeight: 800,
+            color: isDanger ? "#fca5a5" : active ? "#f8fafc" : "#f1f5f9",
+            lineHeight: 1.1
+          }}
+        >
+          {value}
+        </b>
+        <em
+          style={{
+            fontSize: "11px",
+            fontStyle: "normal",
+            color: isDanger ? "#f87171" : active ? "#7dd3fc" : "#64748b",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis"
+          }}
+        >
+          {change}
+        </em>
       </div>
     </div>
   );
@@ -1467,12 +1579,35 @@ function DeepDive({
             <section className="analysis-card">
               <div className="card-topline">
                 <div className="section-kicker">
-                  <Sparkles size={14} /> AI RECRUITER FIT ANALYSIS
+                  <Sparkles size={14} /> AI RECRUITER FIT ANALYSIS & SCORING BREAKDOWN
                 </div>
                 <span className="micro-label">CONFIDENCE: HIGH</span>
               </div>
               <p>{candidate.fit}</p>
-              <div className="analysis-tags">
+              
+              <div style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid rgba(255, 255, 255, 0.08)" }}>
+                <div className="micro-label" style={{ marginBottom: "0.75rem", color: "#38bdf8", fontWeight: 700 }}>HYBRID SCORING DIMENSIONS</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem" }}>
+                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase" }}>🛠️ Skill Coverage</span>
+                    <b style={{ fontSize: "16px", color: "#f8fafc" }}>{candidate.scoreBreakdown?.skill_coverage || 85}%</b>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase" }}>🎯 Role Title Fit</span>
+                    <b style={{ fontSize: "16px", color: "#f8fafc" }}>{candidate.scoreBreakdown?.title_fit || 90}%</b>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase" }}>🧠 AI Semantic Fit</span>
+                    <b style={{ fontSize: "16px", color: "#f8fafc" }}>{candidate.scoreBreakdown?.semantic_fit || 88}%</b>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase" }}>🎓 Signal Bonus</span>
+                    <b style={{ fontSize: "16px", color: "#34d399" }}>+{candidate.scoreBreakdown?.signal_bonus || 10}%</b>
+                  </div>
+                </div>
+              </div>
+
+              <div className="analysis-tags" style={{ marginTop: "1rem" }}>
                 <span>
                   <Check size={13} /> Skills aligned
                 </span>

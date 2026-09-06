@@ -730,26 +730,34 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
         completeness_score = 0.02
 
     # Calculate base score with signal bonuses
-    # career_s is capped at 0.5 internally; scale it down to add as a bonus (max ~0.15)
-    base_score = title_s * 0.4 + skill_s * 0.3 + nlp_s * 0.3
-    base_score += career_s * 0.3  # career description bonus — "production retrieval" beats pure skill lists
-    base_score += edu_score + github_score + assess_score + completeness_score
+    signal_bonus = edu_score + github_score + assess_score + completeness_score + (career_s * 0.10)
     
-    # Apply soft penalties (country, location, experience, consulting)
-    base_score += country_penalty + location_penalty + exp_penalty
+    if not is_default and (jd_skills or jd_title_keywords):
+        # 50% Skill coverage, 30% Title fit, 20% BGE Neural Semantic fit
+        raw_fit = (skill_s * 0.50) + (title_s * 0.30) + (nlp_s * 0.20)
+        
+        # If candidate has ZERO skill match and low title match for a specific JD,
+        # scale down raw fit & bonuses so completely unrelated profiles stay under 55%
+        if skill_s == 0.0 and title_s <= 0.05:
+            raw_fit *= 0.20
+            signal_bonus *= 0.20
+    else:
+        raw_fit = (title_s * 0.40) + (skill_s * 0.30) + (nlp_s * 0.30)
+        
+    penalties = country_penalty + location_penalty + exp_penalty
     if is_consulting:
-        base_score -= 0.05
-
-    
-    # 3. Availability Multiplier & Interest
+        penalties -= 0.05
+        
+    # Availability Multiplier & Interest
     availability_mult = calculate_availability_multiplier(cand)
-    
     views = signals.get("profile_views_received_30d", 0)
     searches = signals.get("search_appearance_30d", 0)
     saved = signals.get("saved_by_recruiters_30d", 0)
-    interest_score = min((views * 2 + searches * 0.1 + saved * 5) / 100.0, 0.3)
+    interest_score = min((views * 2 + searches * 0.1 + saved * 5) / 100.0, 0.2)
     
-    final_score = base_score * availability_mult + interest_score
+    # Calibrated absolute fit score
+    final_fit = (raw_fit + signal_bonus + penalties) * availability_mult + interest_score
+    final_score = max(0.0, min(1.0, final_fit))
     
     return {
         "candidate_id": cand["candidate_id"],
@@ -760,6 +768,12 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
         "current_title": profile.get("current_title"),
         "current_company": profile.get("current_company"),
         "score": final_score,
+        "score_breakdown": {
+            "title_fit": round(min(1.0, title_s) * 100),
+            "skill_coverage": round(min(1.0, skill_s) * 100),
+            "semantic_fit": round(min(1.0, nlp_s) * 100),
+            "signal_bonus": round(min(0.25, signal_bonus) * 100)
+        },
         "candidate_raw": cand  # keep reference for detail display
     }
 
@@ -822,16 +836,8 @@ def rank_candidates(candidates_list, jd_text=""):
     # Sort by score desc, then by candidate_id asc
     scored.sort(key=lambda x: (-x["score"], x["candidate_id"]))
     
-    # Normalize scores to 0–1 range across the full pool so frontend
-    # can safely display as 0–100 without overflow
-    if len(scored) > 1:
-        max_s = scored[0]["score"]
-        min_s = scored[-1]["score"]
-        score_range = max_s - min_s if max_s != min_s else 1.0
-        for c in scored:
-            c["score"] = (c["score"] - min_s) / score_range
-    elif len(scored) == 1:
-        scored[0]["score"] = 1.0  # single candidate gets perfect score
+    for c in scored:
+        c["score"] = max(0.0, min(1.0, c["score"]))
     
     # Assign ranks and reasoning to all candidates
     ranked_results = []

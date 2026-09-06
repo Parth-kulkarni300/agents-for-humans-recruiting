@@ -186,8 +186,17 @@ def get_shortlist(page: int = 1, limit: int = 50):
     import backend.agent as agent_mod
     
     total_candidates = agent_mod.TOTAL_INITIAL_CANDIDATES if agent_mod.TOTAL_INITIAL_CANDIDATES > 0 else len(agent_mod.CANDIDATES)
-    eligible_candidates = agent_mod.ELIGIBLE_CANDIDATES if agent_mod.ELIGIBLE_CANDIDATES > 0 else len(agent_mod.CANDIDATES)
-    honeypots = max(0, total_candidates - eligible_candidates)
+    honeypots = len(agent_mod.HONEYPOT_CANDIDATES) if hasattr(agent_mod, "HONEYPOT_CANDIDATES") and agent_mod.HONEYPOT_CANDIDATES else max(0, total_candidates - len(agent_mod.CANDIDATES))
+    
+    # Calculate JD alignment counts
+    if agent_mod.ACTIVE_SHORTLIST:
+        eligible_candidates = len([c for c in agent_mod.ACTIVE_SHORTLIST if c.get("score", 0) >= 0.55])
+        unaligned_jd_count = len([c for c in agent_mod.ACTIVE_SHORTLIST if c.get("score", 0) < 0.55])
+    else:
+        eligible_candidates = len(agent_mod.CANDIDATES)
+        unaligned_jd_count = 0
+        
+    shortlisted_count = getattr(agent_mod, "SHORTLISTED_COUNT", 0)
     
     source_pool = agent_mod.ACTIVE_SHORTLIST if agent_mod.ACTIVE_SHORTLIST else [
         {
@@ -240,7 +249,9 @@ def get_shortlist(page: int = 1, limit: int = 50):
         "stats": {
             "total_candidates": total_candidates,
             "eligible_candidates": eligible_candidates,
+            "unaligned_jd_count": unaligned_jd_count,
             "honeypot_count": honeypots,
+            "shortlisted_count": shortlisted_count,
             "total_ranked": total_items
         },
         "page": page,
@@ -287,10 +298,110 @@ def export_shortlist_excel():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
+def parse_single_pdf_candidate(pdf_bytes: bytes, filename: str, idx: int) -> dict:
+    """Extracts candidate profile structure from a single PDF resume."""
+    import io
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    text_parts = [page.extract_text() or "" for page in reader.pages]
+    raw_text = "\n".join(text_parts).strip()
+    
+    # 1. Candidate Name
+    clean_stem = Path(filename).stem.replace("_", " ").replace("-", " ").title()
+    name = clean_stem
+    lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+    if lines:
+        for line in lines[:5]:
+            line_clean = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+|[\+\d\s\-\(\)]{10,}', '', line).strip()
+            if line_clean and re.match(r'^[A-Za-z\s\.\,\'\-]{2,40}$', line_clean) and len(line_clean.split()) <= 4:
+                if not re.search(r'resume|curriculum|cv|profile|contact|email|phone', line_clean, re.IGNORECASE):
+                    name = line_clean.title()
+                    break
+
+    # 2. Email & Phone
+    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', raw_text)
+    email = email_match.group(0) if email_match else ""
+    
+    phone_match = re.search(r'(?:\+?\d{1,3}[ -]?)?\(?\d{3,5}\)?[ -]?\d{3,5}[ -]?\d{3,5}', raw_text)
+    phone = phone_match.group(0) if phone_match else ""
+    
+    # 3. Location
+    from backend.ranker import extract_locations_from_jd, extract_skills_from_jd
+    locs = extract_locations_from_jd(raw_text)
+    location = locs[0] if locs else "India"
+    
+    # 4. Skills
+    found_skills = extract_skills_from_jd(raw_text)
+    skills_list = [{"name": s, "proficiency": "intermediate", "duration_months": 24} for s in sorted(found_skills)]
+    if not skills_list:
+        skills_list = [{"name": "Software Engineering", "proficiency": "intermediate", "duration_months": 12}]
+        
+    # 5. Experience
+    years_exp = 0.0
+    exp_match = re.search(r'(\d+(?:\.\d+)?)\+?\s*(?:years|yrs)\b', raw_text, re.IGNORECASE)
+    if exp_match:
+        try:
+            years_exp = float(exp_match.group(1))
+        except:
+            years_exp = 0.0
+    else:
+        years = re.findall(r'\b(19\d\d|20[0-2]\d)\b', raw_text)
+        if len(years) >= 2:
+            int_years = [int(y) for y in years]
+            years_exp = max(0.0, float(max(int_years) - min(int_years)))
+            
+    # 6. Current Title & Company
+    current_title = "Software Engineer"
+    title_match = re.search(r'(?:Senior|Lead|Junior|Staff|Principal)?\s*(?:Software|Data|Full Stack|Backend|Frontend|DevOps|ML|AI|Cloud|Product|Systems)\s*(?:Engineer|Developer|Scientist|Architect|Manager)', raw_text, re.IGNORECASE)
+    if title_match:
+        current_title = title_match.group(0).title()
+        
+    current_company = "Tech Services"
+    from backend.ranker import FOUNDING_YEARS
+    for comp in FOUNDING_YEARS.keys():
+        if re.search(r'\b' + re.escape(comp) + r'\b', raw_text, re.IGNORECASE):
+            current_company = comp
+            break
+            
+    headline = f"{current_title} with {years_exp:.1f} yrs experience"
+    cand_id = f"C-PDF-{idx:03d}"
+    
+    return {
+        "candidate_id": cand_id,
+        "profile": {
+            "anonymized_name": name,
+            "headline": headline,
+            "years_of_experience": years_exp,
+            "location": location,
+            "current_title": current_title,
+            "current_company": current_company,
+            "summary": raw_text[:500],
+            "email": email,
+            "phone": phone
+        },
+        "skills": skills_list,
+        "career_history": [
+            {
+                "company": current_company,
+                "title": current_title,
+                "start_date": "2022-01-01",
+                "end_date": "2026-01-01",
+                "description": raw_text[:300]
+            }
+        ],
+        "education": [],
+        "redrob_signals": {
+            "signup_date": "2023-01-01",
+            "last_active_date": "2026-05-01"
+        }
+    }
+
 @app.post("/upload_candidates")
-async def upload_candidates_batch(file: UploadFile = File(...)):
+async def upload_candidates_batch(
+    files: Optional[List[UploadFile]] = File(None),
+    file: Optional[UploadFile] = File(None)
+):
     """
-    Ingests a new candidate pool via JSONL or CSV.
+    Ingests a new candidate pool via PDF(s), JSONL, or CSV.
     REPLACES the existing pool entirely (not append) so jury files work correctly.
     After loading, auto-recomputes neural embeddings for the new candidates.
     """
@@ -298,40 +409,60 @@ async def upload_candidates_batch(file: UploadFile = File(...)):
     from backend.ranker import get_sentence_model
     import backend.ranker as ranker_mod
 
-    global CANDIDATES
-    filename = file.filename.lower()
-    content = await file.read()
-    
+    upload_list = []
+    if files:
+        upload_list.extend(files)
+    if file and file not in upload_list:
+        upload_list.append(file)
+        
+    if not upload_list:
+        raise HTTPException(status_code=400, detail="No files provided for upload.")
+
     new_candidates = []
+    pdf_count = 0
+    
     try:
-        if filename.endswith(".jsonl"):
-            text = content.decode("utf-8", errors="ignore")
-            for line in text.split("\n"):
-                if line.strip():
-                    new_candidates.append(json.loads(line))
-        elif filename.endswith(".csv"):
-            import io
-            df = pd.read_csv(io.BytesIO(content))
-            for _, row in df.iterrows():
-                cand = {
-                    "candidate_id": str(row.get("candidate_id", f"C-{len(new_candidates)}")),
-                    "profile": {
-                        "anonymized_name": str(row.get("name", "Unknown")),
-                        "headline": str(row.get("headline", "")),
-                        "years_of_experience": float(row.get("years_exp", 0.0)),
-                        "location": str(row.get("location", "")),
-                        "current_title": str(row.get("current_title", "")),
-                        "current_company": str(row.get("current_company", ""))
-                    },
-                    "skills": [{"name": s.strip(), "proficiency": "intermediate", "duration_months": 24} for s in str(row.get("skills", "")).split(",") if s.strip()],
-                    "career_history": [],
-                    "education": [],
-                    "redrob_signals": {}
-                }
-                new_candidates.append(cand)
-        else:
-            raise HTTPException(status_code=400, detail="Only JSONL or CSV formats are supported.")
+        for f in upload_list:
+            fname = f.filename.lower()
+            content = await f.read()
             
+            if fname.endswith(".jsonl"):
+                text = content.decode("utf-8", errors="ignore")
+                for line in text.split("\n"):
+                    if line.strip():
+                        new_candidates.append(json.loads(line))
+                        
+            elif fname.endswith(".csv"):
+                import io
+                df = pd.read_csv(io.BytesIO(content))
+                for _, row in df.iterrows():
+                    cand = {
+                        "candidate_id": str(row.get("candidate_id", f"C-{len(new_candidates)}")),
+                        "profile": {
+                            "anonymized_name": str(row.get("name", "Unknown")),
+                            "headline": str(row.get("headline", "")),
+                            "years_of_experience": float(row.get("years_exp", 0.0)),
+                            "location": str(row.get("location", "")),
+                            "current_title": str(row.get("current_title", "")),
+                            "current_company": str(row.get("current_company", ""))
+                        },
+                        "skills": [{"name": s.strip(), "proficiency": "intermediate", "duration_months": 24} for s in str(row.get("skills", "")).split(",") if s.strip()],
+                        "career_history": [],
+                        "education": [],
+                        "redrob_signals": {}
+                    }
+                    new_candidates.append(cand)
+                    
+            elif fname.endswith(".pdf"):
+                pdf_count += 1
+                cand = parse_single_pdf_candidate(content, f.filename, pdf_count)
+                new_candidates.append(cand)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported file format '{f.filename}'. Only PDF, JSONL, or CSV formats are supported.")
+            
+        if not new_candidates:
+            raise HTTPException(status_code=400, detail="No valid candidates parsed from the uploaded file(s).")
+
         # REPLACE pool (not append) — critical for jury compatibility
         agent_mod.RAW_INITIAL_CANDIDATES.clear()
         agent_mod.RAW_INITIAL_CANDIDATES.extend(new_candidates)
@@ -393,7 +524,7 @@ async def upload_candidates_batch(file: UploadFile = File(...)):
             "embeddings": embeddings_status
         }
     except Exception as e:
-        logger.error(f"Error parsing candidate file {file.filename}: {e}")
+        logger.error(f"Error parsing candidate file: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to ingest candidates: {str(e)}")
 
 # Helper function to parse docx XML directly (saves us installing python-docx)

@@ -27,7 +27,13 @@ submission.xlsx
 node_modules/
 dist/
 build/
+# Temporary test scripts & files
+scratch/
+combined.pdf
+WhatsApp Image*
 *.npy
 backend/*.npy
 backend/candidate_ids.json
+
+
 
