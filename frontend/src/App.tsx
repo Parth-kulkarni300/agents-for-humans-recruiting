@@ -18,7 +18,6 @@ import {
   Database,
   FileText,
   Filter,
-  Globe2,
   GraduationCap,
   LockKeyhole,
   MapPin,
@@ -34,6 +33,7 @@ import {
 
 type Candidate = {
   id: number;
+  rank?: number;
   name: string;
   role: string;
   score: number;
@@ -140,7 +140,7 @@ function DropZone({
           <CloudUpload size={20} />
         </span>
         <strong>
-          Drop files here or <u>browse</u>
+          Drop files here or <u>browse files</u>
         </strong>
         <small>
           CSV, JSONL, PDF <span>/</span> MAX 50MB
@@ -820,25 +820,25 @@ function Ingest({
   };
   return (
     <main className="workspace min-h-screen">
-      <WorkspaceHeader step="01 / INGEST" onBack={onBack} />
+      <WorkspaceHeader step="01 / DATA INGESTION" onBack={onBack} />
       <section className="workspace-content narrow">
         <div className="section-kicker">
-          <Database size={15} /> DATA INGESTION
+          <Database size={15} /> DATA INGESTION PIPELINE
         </div>
         <h1 className="page-title">
-          Give the agents
+          Power autonomous screening
           <br />
-          <span>something to think about.</span>
+          <span>with candidate & job data.</span>
         </h1>
         <p className="page-intro">
-          Upload your talent pool and the role you&apos;re hiring for.
-          RecruitShield will normalize, embed, and map the entire candidate
-          graph.
+          Upload your talent pool and target role specifications. RecruitShield automatically
+          normalizes candidate data, extracts core qualifications, and maps candidates across our
+          neural embedding model.
         </p>
         <div className="ingest-grid">
           <DropZone
-            title="Upload candidates database"
-            description="CSV, JSONL, or bulk PDF resumes"
+            title="Candidate Pool Database"
+            description="Bulk PDF resumes, JSONL, or CSV datasets"
             icon={<Users size={22} />}
             files={files}
             onFiles={(list: any) => addFiles(list, 'candidates')}
@@ -850,9 +850,9 @@ function Ingest({
               </span>
               <div>
                 <h3>
-                  Job description <span className="required">REQUIRED</span>
+                  Target Job Description <span className="required">REQUIRED</span>
                 </h3>
-                <p>Upload a PDF or paste manually</p>
+                <p>Upload a JD document or paste criteria below</p>
               </div>
             </div>
             <label className="drop-zone compact">
@@ -863,17 +863,17 @@ function Ingest({
               />
               <Upload size={18} />
               <span>
-                Drop JD PDF or <u>browse</u>
+                Drop Job Description (PDF) or <u>browse</u>
               </span>
               <small>PDF up to 10MB</small>
             </label>
             <div className="or-line">
-              <span /> OR PASTE TEXT <span />
+              <span /> OR PASTE JOB DESCRIPTION TEXT <span />
             </div>
             <textarea
               value={jd}
               onChange={(e) => setJd(e.target.value)}
-              placeholder="Paste the job description here..."
+              placeholder="Paste job title, key responsibilities, required skills, experience levels, and location requirements here..."
             />
           </div>
         </div>
@@ -881,17 +881,16 @@ function Ingest({
           <div className="privacy-note">
             <LockKeyhole size={15} />
             <span>
-              <b>Your data stays yours.</b> Encrypted in transit and never used
-              to train models.
+              <b>Enterprise Data Security:</b> Encrypted in transit. Raw candidate data is strictly isolated and never used for model training.
             </span>
           </div>
           <GlowButton onClick={onAnalyze}>
             {loading ? (
               <>
-                <span className="spinner" /> Agents are reasoning...
+                <span className="spinner" /> AI Agents Reasoning...
               </>
             ) : (
-              <>Analyze & match candidates</>
+              <>Run AI Screen & Candidate Match</>
             )}
           </GlowButton>
         </div>
@@ -930,7 +929,7 @@ function Pipeline({
   filtered,
   stats,
   page,
-  totalPages,
+  totalPages: _totalPages,
   onPageChange,
   query,
   setQuery,
@@ -1025,6 +1024,20 @@ function Pipeline({
     eduLevels.length +
     (threshold > 0 ? 1 : 0) +
     (openToRelocation ? 1 : 0);
+
+  const currentTabTotalCount = useMemo(() => {
+    if (activeTab === 'eligible') return stats.eligible_candidates ?? stats.total_ranked;
+    if (activeTab === 'unaligned') return stats.unaligned_jd_count ?? 0;
+    if (activeTab === 'shortlisted') return stats.shortlisted_count ?? 0;
+    return stats.total_ranked || _candidates.length;
+  }, [activeTab, stats, _candidates.length]);
+
+  const isFilteringActive = activeFilterCount > 0 || query.trim().length > 0;
+  const effectiveTotalCount = isFilteringActive ? filtered.length : currentTabTotalCount;
+  const effectiveTotalPages = Math.max(1, Math.ceil(effectiveTotalCount / 50));
+
+  const hasNextPage = page < effectiveTotalPages && filtered.length >= 50;
+  const hasPreviousPage = page > 1;
 
   return (
     <main className="workspace min-h-screen">
@@ -1334,14 +1347,16 @@ function Pipeline({
                 <span>Try widening the experience or score threshold.</span>
               </div>
             ) : (
-              filtered.map((c, i) => (
-                <button
-                  className="candidate-row"
-                  key={c.id || i}
-                  onClick={() => onSelect(c)}
-                >
-                  <span className="candidate-cell">
-                    <i className="rank">#{String((c as any).rank || i + 1).padStart(2, "0")}</i>
+              filtered.map((c, i) => {
+                const currentRank = (c as any).rank || ((page - 1) * 50 + i + 1);
+                return (
+                  <button
+                    className="candidate-row"
+                    key={c.id || i}
+                    onClick={() => onSelect({ ...c, rank: currentRank })}
+                  >
+                    <span className="candidate-cell">
+                      <i className="rank">#{String(currentRank).padStart(2, "0")}</i>
                     <span className={`tiny-avatar ${c.tone}`}>
                       {c.initials}
                     </span>
@@ -1363,56 +1378,69 @@ function Pipeline({
                   </span>
                   <ArrowRight className="row-arrow" size={16} />
                 </button>
-              ))
-            )}
+              );
+            })
+          )}
           </div>
           <div className="table-footer flex items-center justify-between" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '13px', color: '#94a3b8' }}>
-              Showing candidates {((page - 1) * 50) + 1} – {Math.min(page * 50, stats.total_ranked)} of {(stats.total_ranked || 100000).toLocaleString()} ranked
+              {filtered.length === 0 ? (
+                "No matching candidates found"
+              ) : (
+                <>
+                  Showing candidates {((page - 1) * 50) + 1} – {((page - 1) * 50) + filtered.length} of {effectiveTotalCount.toLocaleString()} {isFilteringActive ? "matching" : "ranked"}
+                </>
+              )}
             </span>
-            <div className="flex items-center gap-3" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button
-                disabled={page <= 1}
-                onClick={() => onPageChange(page - 1)}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  background: page <= 1 ? 'rgba(255,255,255,0.03)' : 'rgba(0, 242, 254, 0.15)',
-                  color: page <= 1 ? '#555' : '#00f2fe',
-                  border: '1px solid rgba(0, 242, 254, 0.3)',
-                  cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <ArrowLeft size={14} /> Previous 50
-              </button>
-              <span style={{ fontSize: '13px', fontWeight: 600, color: '#38bdf8' }}>
-                Page {page} of {totalPages || 1}
-              </span>
-              <button
-                disabled={page >= totalPages}
-                onClick={() => onPageChange(page + 1)}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  background: page >= totalPages ? 'rgba(255,255,255,0.03)' : 'rgba(0, 242, 254, 0.15)',
-                  color: page >= totalPages ? '#555' : '#00f2fe',
-                  border: '1px solid rgba(0, 242, 254, 0.3)',
-                  cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                Next 50 <ArrowRight size={14} />
-              </button>
-            </div>
+            {(hasPreviousPage || hasNextPage || effectiveTotalPages > 1) && (
+              <div className="flex items-center gap-3" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {hasPreviousPage && (
+                  <button
+                    onClick={() => onPageChange(page - 1)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      background: 'rgba(0, 242, 254, 0.15)',
+                      color: '#00f2fe',
+                      border: '1px solid rgba(0, 242, 254, 0.3)',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <ArrowLeft size={14} /> Previous 50
+                  </button>
+                )}
+                {effectiveTotalPages > 1 && (
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#38bdf8' }}>
+                    Page {page} of {effectiveTotalPages}
+                  </span>
+                )}
+                {hasNextPage && (
+                  <button
+                    onClick={() => onPageChange(page + 1)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      background: 'rgba(0, 242, 254, 0.15)',
+                      color: '#00f2fe',
+                      border: '1px solid rgba(0, 242, 254, 0.3)',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    Next 50 <ArrowRight size={14} />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -1518,6 +1546,8 @@ function DeepDive({
   candidate: Candidate;
   onBack: () => void;
 }) {
+  const actualRank = candidate.rank || 1;
+  const formattedRank = String(actualRank).padStart(2, "0");
   return (
     <main className="workspace min-h-screen">
       <WorkspaceHeader step="03 / DEEP DIVE" onBack={onBack} />
@@ -1542,7 +1572,7 @@ function DeepDive({
             </span>
             <div>
               <div className="section-kicker">
-                <StatusDot /> TOP MATCH / RANK 01
+                <StatusDot /> {actualRank === 1 ? "TOP MATCH" : "MATCHED CANDIDATE"} / RANK #{formattedRank}
               </div>
               <h1>{candidate.name}</h1>
               <p>{candidate.headline}</p>
@@ -1652,34 +1682,7 @@ function DeepDive({
             </section>
           </div>
           <aside className="deep-aside">
-            <section className="signals-section">
-              <div className="section-title">
-                <div>
-                  <div className="section-kicker">
-                    <Globe2 size={14} /> PLATFORM AVAILABILITY ENVELOPE
-                  </div>
-                  <h2>Verified signals</h2>
-                </div>
-                <span className="micro-label">LIVE / ENCRYPTED</span>
-              </div>
-              <div className="signal-grid">
-                {candidate.signals.map((s) => (
-                  <div className={`signal-card ${s.type}`} key={s.label}>
-                    <span className="signal-status">
-                      <StatusDot />
-                      {s.type === "good"
-                        ? "VERIFIED"
-                        : s.type === "warn"
-                          ? "ATTENTION"
-                          : "AVAILABLE"}
-                    </span>
-                    <b>{s.value}</b>
-                    <span>{s.label}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-            <section className="skills-card">
+            <section className="skills-card" style={{ marginTop: 0 }}>
               <div className="section-kicker">
                 <BarChart3 size={14} /> SKILL SET MATRIX
               </div>

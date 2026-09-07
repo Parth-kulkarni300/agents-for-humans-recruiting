@@ -27,9 +27,9 @@ def main():
         print(f"Error: Candidate database not found at {candidates_file}")
         return
         
-    print("Initializing SentenceTransformer model (BAAI/bge-small-en-v1.5)...")
-    # Using a compact and fast state-of-the-art retrieval model
-    model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+    print("Initializing SentenceTransformer model (BAAI/bge-base-en-v1.5)...")
+    # Using state-of-the-art 768-dim retrieval model
+    model = SentenceTransformer('BAAI/bge-base-en-v1.5')
     
     print("Loading candidate profiles from database...")
     candidates = []
