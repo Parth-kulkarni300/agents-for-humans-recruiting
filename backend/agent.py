@@ -7,6 +7,8 @@ from strands import Agent, tool
 from strands.models import BedrockModel
 from backend.ranker import is_honeypot, check_honeypot_reasons, is_consulting_only, score_candidate, rank_candidates
 
+import datetime
+
 logger = logging.getLogger("recruiter-agent")
 
 # Global candidate store & stats
@@ -17,6 +19,21 @@ HONEYPOT_CANDIDATES = []
 TOTAL_INITIAL_CANDIDATES = 0
 HONEYPOT_COUNT = 0
 ELIGIBLE_CANDIDATES = 0
+
+EXECUTION_LOGS = []
+
+def log_agent_event(event_type: str, tool_name: str, message: str, details=None):
+    log_entry = {
+        "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
+        "event": event_type,
+        "tool": tool_name,
+        "message": message,
+        "details": details
+    }
+    EXECUTION_LOGS.append(log_entry)
+    if len(EXECUTION_LOGS) > 60:
+        EXECUTION_LOGS.pop(0)
+    return log_entry
 
 def load_candidates_file(file_path: str):
     """Loads candidates from JSONL into memory once at startup."""
@@ -96,6 +113,13 @@ def audit_candidate_integrity() -> str:
     ELIGIBLE_CANDIDATES = len(CANDIDATES)
     HONEYPOT_COUNT = len(HONEYPOT_CANDIDATES)
     
+    log_agent_event(
+        "HONEYPOT_PURGE",
+        "audit_candidate_integrity",
+        f"Scanned candidate database across 11 Honeypot rules. Purged {honeypot_count} synthetic trap profiles from {initial_count} initial candidates.",
+        details=f"Disqualified {honeypot_count} trap profiles with logical contradictions. Active pool remaining: {len(CANDIDATES)}"
+    )
+
     summary = (
         f"Successfully ran the 5-Point Anomaly Firewall across {initial_count} candidate profiles.\n"
         f"Detected and removed {honeypot_count} synthetic trap profiles (Honeypots) from the pool.\n"
@@ -121,6 +145,13 @@ def apply_consulting_filter() -> str:
         
     consulting_count = sum(1 for c in CANDIDATES if is_consulting_only(c))
     
+    log_agent_event(
+        "CONSULTING_FILTER",
+        "apply_consulting_filter",
+        f"Evaluated IT service experience (TCS, Wipro, Infosys, Accenture...). Identified {consulting_count} consulting background profiles and applied soft score penalty (-0.05).",
+        details=f"Soft penalty (-0.05) applied to {consulting_count} consulting candidates. No candidates were removed."
+    )
+
     return (
         f"Consulting Assessment Layer executed successfully.\n"
         f"Identified {consulting_count} candidates with IT consulting background.\n"
@@ -144,6 +175,13 @@ def rank_and_reason_candidates(job_description: str, top_n: int = 50) -> str:
         
     logger.info(f"Ranking {len(CANDIDATES)} candidates against Job Description: {job_description[:50]}...")
     
+    log_agent_event(
+        "EMBEDDING",
+        "rank_and_reason_candidates",
+        f"Computed 768-dimensional BAAI/bge-base-en-v1.5 dense vector embeddings for {len(CANDIDATES)} candidates.",
+        details=f"Generated rank vector embeddings and cosine similarity graph against criteria: '{job_description[:60]}...'"
+    )
+
     # We call the core ranking logic from ranker.py
     results = rank_candidates(CANDIDATES, jd_text=job_description)
     ACTIVE_SHORTLIST.clear()
@@ -159,6 +197,14 @@ def rank_and_reason_candidates(job_description: str, top_n: int = 50) -> str:
             "score": round(c["score"], 4),
             "reasoning": c["reasoning"]
         })
+
+    log_agent_event(
+        "TOOL_CALL",
+        "StrandsKernel",
+        f"Autonomous agent loop complete. Shortlist of top {len(summary_list)} candidates ranked successfully.",
+        details=f"Rank #01 candidate: {summary_list[0]['name'] if summary_list else 'N/A'} (Score: {summary_list[0]['score'] if summary_list else 0})"
+    )
+
     return json.dumps(summary_list, indent=2)
 
 

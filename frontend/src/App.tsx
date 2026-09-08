@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Activity,
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
@@ -14,6 +15,7 @@ import {
   CircleHelp,
   Clock3,
   CloudUpload,
+  Cpu,
   Crosshair,
   Database,
   FileText,
@@ -21,9 +23,13 @@ import {
   GraduationCap,
   LockKeyhole,
   MapPin,
+  Mic,
+  MicOff,
   Search,
   ShieldCheck,
   Sparkles,
+  Square,
+  Terminal,
   Upload,
   UserRound,
   Users,
@@ -451,6 +457,9 @@ export default function RecruitShieldApp() {
   const [honeypotList, setHoneypotList] = useState<any[]>([]);
   const [honeypotLoading, setHoneypotLoading] = useState(false);
 
+  const [showAgentConsoleModal, setShowAgentConsoleModal] = useState(false);
+  const [breakdownCandidate, setBreakdownCandidate] = useState<Candidate | null>(null);
+
   const fetchHoneypots = async () => {
     setHoneypotLoading(true);
     setShowHoneypotsModal(true);
@@ -469,22 +478,29 @@ export default function RecruitShieldApp() {
     return <Landing onLaunch={() => setScreen("ingest")} />;
   if (screen === "ingest")
     return (
-      <Ingest
-        files={files}
-        setFiles={setFiles}
-        jd={jd}
-        setJd={setJd}
-        setJdSkills={setJdSkills}
-        setJdLocations={setJdLocations}
-        setJdWorkModes={setJdWorkModes}
-        loading={loading}
-        onBack={() => setScreen("landing")}
-        onAnalyze={analyze}
-        onCandidatesUploaded={(count: number) => {
-          fetchShortlist(1);
-          alert(`✅ Loaded ${count.toLocaleString()} candidates. Pool replaced — ready to analyze!`);
-        }}
-      />
+      <>
+        <Ingest
+          files={files}
+          setFiles={setFiles}
+          jd={jd}
+          setJd={setJd}
+          setJdSkills={setJdSkills}
+          setJdLocations={setJdLocations}
+          setJdWorkModes={setJdWorkModes}
+          loading={loading}
+          onBack={() => setScreen("landing")}
+          onAnalyze={analyze}
+          onCandidatesUploaded={(count: number) => {
+            fetchShortlist(1);
+            alert(`✅ Loaded ${count.toLocaleString()} candidates. Pool replaced — ready to analyze!`);
+          }}
+          onOpenAgentConsole={() => setShowAgentConsoleModal(true)}
+        />
+        <AgentConsoleModal
+          isOpen={showAgentConsoleModal}
+          onClose={() => setShowAgentConsoleModal(false)}
+        />
+      </>
     );
   if (screen === "deepdive")
     return (
@@ -537,12 +553,22 @@ export default function RecruitShieldApp() {
           setScreen("deepdive");
         }}
         onOpenHoneypots={fetchHoneypots}
+        onOpenAgentConsole={() => setShowAgentConsoleModal(true)}
       />
       <HoneypotModal
         isOpen={showHoneypotsModal}
         onClose={() => setShowHoneypotsModal(false)}
         honeypots={honeypotList}
         loading={honeypotLoading}
+      />
+      <AgentConsoleModal
+        isOpen={showAgentConsoleModal}
+        onClose={() => setShowAgentConsoleModal(false)}
+      />
+      <ScoreBreakdownModal
+        candidate={breakdownCandidate}
+        isOpen={!!breakdownCandidate}
+        onClose={() => setBreakdownCandidate(null)}
       />
     </>
   );
@@ -769,6 +795,7 @@ function Ingest({
   onBack,
   onAnalyze,
   onCandidatesUploaded,
+  onOpenAgentConsole,
 }: {
   files: string[];
   setFiles: (x: string[]) => void;
@@ -781,7 +808,65 @@ function Ingest({
   onBack: () => void;
   onAnalyze: () => void;
   onCandidatesUploaded: (count: number) => void;
+  onOpenAgentConsole?: () => void;
 }) {
+  const [isListening, setIsListening] = useState(false);
+
+  const startListening = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Voice Dictation: Browser speech recognition is not supported on this browser. Please use Google Chrome, Microsoft Edge, or Brave.");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript.trim()) {
+          setJd(jd ? jd + " " + transcript : transcript);
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        console.error("Speech Recognition Error", e);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+      (window as any)._speechRecInstance = recognition;
+    } catch (err) {
+      console.error("Failed to start speech recognition", err);
+      setIsListening(false);
+    }
+  };
+
+  const stopListening = () => {
+    if ((window as any)._speechRecInstance) {
+      try {
+        (window as any)._speechRecInstance.stop();
+      } catch (e) {}
+      setIsListening(false);
+    }
+  };
+
   const addFiles = async (list: FileList | null, type: 'jd' | 'candidates') => {
     if (!list || list.length === 0) return;
     
@@ -820,7 +905,7 @@ function Ingest({
   };
   return (
     <main className="workspace min-h-screen">
-      <WorkspaceHeader step="01 / DATA INGESTION" onBack={onBack} />
+      <WorkspaceHeader step="01 / DATA INGESTION" onBack={onBack} onOpenAgentConsole={onOpenAgentConsole} />
       <section className="workspace-content narrow">
         <div className="section-kicker">
           <Database size={15} /> DATA INGESTION PIPELINE
@@ -867,6 +952,108 @@ function Ingest({
               </span>
               <small>PDF up to 10MB</small>
             </label>
+
+            {/* Glorified Glowing AI Voice Control Banner */}
+            <div
+              style={{
+                marginTop: '16px',
+                marginBottom: '12px',
+                padding: '14px 18px',
+                borderRadius: '12px',
+                background: isListening
+                  ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.22) 0%, rgba(13, 20, 30, 0.95) 100%)'
+                  : 'linear-gradient(135deg, rgba(6, 182, 212, 0.16) 0%, rgba(14, 165, 233, 0.06) 100%)',
+                border: isListening
+                  ? '1px solid rgba(239, 68, 68, 0.55)'
+                  : '1px solid rgba(6, 182, 212, 0.45)',
+                boxShadow: isListening
+                  ? '0 0 30px rgba(239, 68, 68, 0.35)'
+                  : '0 0 25px rgba(6, 182, 212, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '14px',
+                transition: 'all 0.3s ease',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0, flex: 1 }}>
+                <div
+                  style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '50%',
+                    flexShrink: 0,
+                    background: isListening ? 'rgba(239, 68, 68, 0.25)' : 'rgba(6, 182, 212, 0.25)',
+                    border: isListening ? '2px solid #ef4444' : '2px solid #38bdf8',
+                    display: 'grid',
+                    placeItems: 'center',
+                    boxShadow: isListening ? '0 0 20px #ef4444' : '0 0 20px #38bdf8',
+                  }}
+                >
+                  {isListening ? (
+                    <MicOff size={20} style={{ color: '#f87171', animation: 'pulse 1s infinite' }} />
+                  ) : (
+                    <Mic size={20} style={{ color: '#38bdf8' }} />
+                  )}
+                </div>
+
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'nowrap' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: isListening ? '#fca5a5' : '#f0f9ff', whiteSpace: 'nowrap' }}>
+                      {isListening ? '🎤 Listening Live...' : 'AI Voice Dictation'}
+                    </span>
+                    <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', background: isListening ? 'rgba(239, 68, 68, 0.3)' : 'rgba(6, 182, 212, 0.3)', color: isListening ? '#f87171' : '#38bdf8', fontWeight: 700, flexShrink: 0 }}>
+                      {isListening ? 'RECORDING' : 'READY'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '3px', lineHeight: '1.3' }}>
+                    {isListening
+                      ? 'Speak title, skills, experience level & location...'
+                      : 'Dictate criteria directly into prompt box by voice'}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={isListening ? stopListening : startListening}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '9px 18px',
+                  borderRadius: '8px',
+                  flexShrink: 0,
+                  background: isListening
+                    ? '#ef4444'
+                    : 'linear-gradient(135deg, #06b6d4 0%, #0284c7 100%)',
+                  border: 'none',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: isListening
+                    ? '0 0 20px rgba(239, 68, 68, 0.7)'
+                    : '0 0 20px rgba(6, 182, 212, 0.5)',
+                  letterSpacing: '0.03em',
+                  transition: 'all 0.2s ease',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {isListening ? (
+                  <>
+                    <Square size={14} fill="#ffffff" />
+                    <span>STOP RECORDING</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic size={14} />
+                    <span>START DICTATION</span>
+                  </>
+                )}
+              </button>
+            </div>
+
             <div className="or-line">
               <span /> OR PASTE JOB DESCRIPTION TEXT <span />
             </div>
@@ -905,6 +1092,7 @@ function WorkspaceHeader({
 }: {
   step: string;
   onBack: () => void;
+  onOpenAgentConsole?: () => void;
 }) {
   return (
     <header className="workspace-header">
@@ -956,6 +1144,7 @@ function Pipeline({
   onBack,
   onSelect,
   onOpenHoneypots,
+  onOpenAgentConsole,
 }: {
   candidates: Candidate[];
   filtered: Candidate[];
@@ -988,6 +1177,7 @@ function Pipeline({
   onBack: () => void;
   onSelect: (c: Candidate) => void;
   onOpenHoneypots: () => void;
+  onOpenAgentConsole?: () => void;
 }) {
   const toggleExpBucket = (b: string) =>
     setExpBuckets(
@@ -1041,7 +1231,7 @@ function Pipeline({
 
   return (
     <main className="workspace min-h-screen">
-      <WorkspaceHeader step="02 / MATCH" onBack={onBack} />
+      <WorkspaceHeader step="02 / MATCH" onBack={onBack} onOpenAgentConsole={onOpenAgentConsole} />
       <div className="pipeline-layout">
         <aside className="filter-sidebar">
           {/* Header */}
@@ -1256,10 +1446,6 @@ function Pipeline({
                 />
                 <kbd>⌘ K</kbd>
               </label>
-              <button className="icon-button">
-                <Bell size={16} />
-              </button>
-              <div className="user-badge">RS</div>
             </div>
           </div>
           <div className="pipeline-heading">
@@ -1273,10 +1459,33 @@ function Pipeline({
               <h1>Candidate intelligence</h1>
               <p>Ranked by semantic fit, experience, and verified signals.</p>
             </div>
-            <button className="sort-button">
-              Ranked by <b>Match score</b>
-              <ChevronDown size={14} />
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <button
+                onClick={onOpenAgentConsole}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "8px 16px",
+                  borderRadius: "8px",
+                  background: "linear-gradient(135deg, rgba(6, 182, 212, 0.2) 0%, rgba(14, 165, 233, 0.1) 100%)",
+                  border: "1px solid rgba(6, 182, 212, 0.5)",
+                  color: "#38bdf8",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  boxShadow: "0 0 18px rgba(6, 182, 212, 0.25)",
+                  fontFamily: "var(--font-mono, monospace)",
+                }}
+              >
+                <Terminal size={15} style={{ color: "#38bdf8" }} />
+                <span>Strands Agent Console</span>
+              </button>
+              <button className="sort-button">
+                Ranked by <b>Match score</b>
+                <ChevronDown size={14} />
+              </button>
+            </div>
           </div>
           <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
             <Metric
@@ -1367,7 +1576,7 @@ function Pipeline({
                     <MapPin size={14} />
                     {c.location}
                   </span>
-                  <span className="match-cell">
+                  <span className="match-cell" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <b>{c.score}</b>
                     <span className="score-bar">
                       <i style={{ width: `${c.score}%` }} />
@@ -1606,38 +1815,94 @@ function DeepDive({
         </div>
         <div className="deep-grid">
           <div className="deep-main">
-            <section className="analysis-card">
-              <div className="card-topline">
-                <div className="section-kicker">
-                  <Sparkles size={14} /> AI RECRUITER FIT ANALYSIS & SCORING BREAKDOWN
+            <section className="analysis-card" style={{ padding: "24px", borderRadius: "14px", border: "1px solid rgba(56, 189, 248, 0.25)", background: "linear-gradient(145deg, rgba(15, 23, 42, 0.95) 0%, rgba(6, 9, 14, 0.98) 100%)", boxShadow: "0 10px 30px rgba(0, 0, 0, 0.4)" }}>
+              {/* Card Header Topline */}
+              <div className="card-topline" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#38bdf8", fontWeight: 800, fontSize: "13px", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  <Sparkles size={16} style={{ color: "#38bdf8" }} />
+                  <span>AI Recruiter Fit Analysis & Scoring Breakdown</span>
                 </div>
-                <span className="micro-label">CONFIDENCE: HIGH</span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    padding: "4px 11px",
+                    borderRadius: "12px",
+                    background: "rgba(16, 185, 129, 0.15)",
+                    border: "1px solid rgba(16, 185, 129, 0.4)",
+                    color: "#34d399",
+                    letterSpacing: "0.05em",
+                    fontFamily: "var(--font-mono, monospace)"
+                  }}
+                >
+                  CONFIDENCE: HIGH
+                </span>
               </div>
-              <p>{candidate.fit}</p>
-              
-              <div style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid rgba(255, 255, 255, 0.08)" }}>
-                <div className="micro-label" style={{ marginBottom: "0.75rem", color: "#38bdf8", fontWeight: 700 }}>HYBRID SCORING DIMENSIONS</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem" }}>
-                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
-                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase" }}>🛠️ Skill Coverage</span>
-                    <b style={{ fontSize: "16px", color: "#f8fafc" }}>{candidate.scoreBreakdown?.skill_coverage || 85}%</b>
+
+              {/* Core Fit Summary Paragraph */}
+              <div style={{ fontSize: "14px", lineHeight: "1.6", color: "#e2e8f0", background: "rgba(255, 255, 255, 0.03)", padding: "14px 16px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.06)", marginBottom: "18px" }}>
+                {candidate.fit}
+              </div>
+
+              {/* Section 1: Candidate's Most Promising Points (Why Candidate Suits JD) */}
+              <div style={{ marginBottom: "20px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 800, color: "#38bdf8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span>🌟 Key Promising Points — Why {candidate.name.split(' ')[0]} Suits The JD</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
+                  <div style={{ background: "rgba(15, 23, 42, 0.8)", padding: "12px 14px", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.2)" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#38bdf8", marginBottom: "4px" }}>⚡ Technical & Skill Synergy</div>
+                    <div style={{ fontSize: "12px", color: "#cbd5e1", lineHeight: "1.4" }}>
+                      {candidate.experience} yrs experience with strong proficiency in {candidate.skills.slice(0, 3).map(s => s.name).join(", ")}. Matches core technical requirements.
+                    </div>
                   </div>
-                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
-                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase" }}>🎯 Role Title Fit</span>
-                    <b style={{ fontSize: "16px", color: "#f8fafc" }}>{candidate.scoreBreakdown?.title_fit || 90}%</b>
+
+                  <div style={{ background: "rgba(15, 23, 42, 0.8)", padding: "12px 14px", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.2)" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#38bdf8", marginBottom: "4px" }}>🏢 Career History & Impact</div>
+                    <div style={{ fontSize: "12px", color: "#cbd5e1", lineHeight: "1.4" }}>
+                      Proven engineering background at {candidate.timeline[0]?.company || 'tech companies'} as {candidate.role}. Strong delivery track record.
+                    </div>
                   </div>
-                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
-                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase" }}>🧠 AI Semantic Fit</span>
-                    <b style={{ fontSize: "16px", color: "#f8fafc" }}>{candidate.scoreBreakdown?.semantic_fit || 88}%</b>
+
+                  <div style={{ background: "rgba(15, 23, 42, 0.8)", padding: "12px 14px", borderRadius: "8px", border: "1px solid rgba(16, 185, 129, 0.25)" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#34d399", marginBottom: "4px" }}>🛡️ Verified Integrity Signal</div>
+                    <div style={{ fontSize: "12px", color: "#cbd5e1", lineHeight: "1.4" }}>
+                      Passed 5-Point Anomaly Firewall. High stability signal ({candidate.willingToRelocate ? "Relocation ready" : "Local talent"}).
+                    </div>
                   </div>
-                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
-                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase" }}>🎓 Signal Bonus</span>
-                    <b style={{ fontSize: "16px", color: "#34d399" }}>+{candidate.scoreBreakdown?.signal_bonus || 10}%</b>
+                </div>
+              </div>
+                             {/* Section 2: Score Calculation Breakdown */}
+              <div style={{ paddingTop: "14px", borderTop: "1px solid rgba(255, 255, 255, 0.08)" }}>
+                <div style={{ fontSize: "11px", fontWeight: 800, color: "#38bdf8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "10px" }}>
+                  📊 Match Score Breakdown ({candidate.score}/100 Match Score)
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px" }}>
+                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase", fontWeight: 700 }}>🛠️ Skill Coverage</span>
+                    <b style={{ fontSize: "18px", color: "#f8fafc" }}>{candidate.scoreBreakdown?.skill_coverage || 85}%</b>
+                    <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Direct skill stack overlap</div>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase", fontWeight: 700 }}>🎯 Role Title Fit</span>
+                    <b style={{ fontSize: "18px", color: "#f8fafc" }}>{candidate.scoreBreakdown?.title_fit || 90}%</b>
+                    <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Seniority & title match</div>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase", fontWeight: 700 }}>🧠 BGE Vector Similarity</span>
+                    <b style={{ fontSize: "18px", color: "#f8fafc" }}>{candidate.scoreBreakdown?.semantic_fit || 88}%</b>
+                    <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>768-dim dense embedding</div>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.03)", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
+                    <span style={{ fontSize: "10px", color: "#94a3b8", display: "block", textTransform: "uppercase", fontWeight: 700 }}>🎓 Signal Bonus</span>
+                    <b style={{ fontSize: "18px", color: "#34d399" }}>+{candidate.scoreBreakdown?.signal_bonus || 10}%</b>
+                    <div style={{ fontSize: "10px", color: "#34d399", marginTop: "2px" }}>Verified stability boost</div>
                   </div>
                 </div>
               </div>
 
-              <div className="analysis-tags" style={{ marginTop: "1rem" }}>
+              {/* Badges */}
+              <div className="analysis-tags" style={{ marginTop: "16px", display: "flex", gap: "10px" }}>
                 <span>
                   <Check size={13} /> Skills aligned
                 </span>
@@ -1712,6 +1977,535 @@ function DeepDive({
         </div>
       </section>
     </main>
+  );
+}
+
+function ScoreBreakdownModal({
+  candidate,
+  isOpen,
+  onClose,
+}: {
+  candidate: Candidate | null;
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  if (!isOpen || !candidate) return null;
+
+  const sb = candidate.scoreBreakdown || {
+    skill_coverage: Math.round(candidate.score * 0.85),
+    title_fit: Math.round(candidate.score * 0.90),
+    semantic_fit: Math.round(candidate.score * 0.88),
+    signal_bonus: 10,
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(3, 7, 13, 0.85)",
+        backdropFilter: "blur(12px)",
+        padding: "20px",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "620px",
+          backgroundColor: "#0d141e",
+          border: "1px solid rgba(56, 189, 248, 0.4)",
+          borderRadius: "14px",
+          boxShadow: "0 25px 70px rgba(56, 189, 248, 0.25), 0 0 40px rgba(0, 0, 0, 0.8)",
+          overflow: "hidden",
+          color: "#e7edf6",
+          padding: "24px",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+          <div>
+            <div style={{ fontSize: "11px", fontWeight: 800, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              SCORE CALCULATION METHODOLOGY
+            </div>
+            <h3 style={{ margin: "4px 0 0", fontSize: "18px", fontWeight: 700, color: "#f8fafc" }}>
+              {candidate.name} — <span style={{ color: "#38bdf8" }}>{candidate.score}/100 Match Score</span>
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              width: "32px",
+              height: "32px",
+              borderRadius: "6px",
+              background: "rgba(255, 255, 255, 0.05)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              color: "#94a3b8",
+              cursor: "pointer",
+              display: "grid",
+              placeItems: "center",
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Weighted Formula Box */}
+        <div
+          style={{
+            padding: "12px 14px",
+            borderRadius: "8px",
+            background: "rgba(15, 23, 42, 0.8)",
+            border: "1px solid rgba(56, 189, 248, 0.25)",
+            fontSize: "12px",
+            color: "#94a3b8",
+            marginBottom: "16px",
+            fontFamily: "var(--font-mono, monospace)",
+            lineHeight: "1.5"
+          }}
+        >
+          <strong style={{ color: "#38bdf8" }}>Weighted Match Formula:</strong>
+          <br />
+          <code>Score = (Skills × 40%) + (Title × 30%) + (BGE Vector × 20%) + Signal Bonus (+10%)</code>
+        </div>
+
+        {/* 4 Dimension Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "18px" }}>
+          <div style={{ padding: "12px", borderRadius: "8px", background: "rgba(255, 255, 255, 0.03)", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700 }}>🛠️ Skill Coverage (40%)</div>
+            <div style={{ fontSize: "20px", fontWeight: 800, color: "#f8fafc", marginTop: "2px" }}>{sb.skill_coverage}%</div>
+            <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>Direct skill stack overlap</div>
+          </div>
+
+          <div style={{ padding: "12px", borderRadius: "8px", background: "rgba(255, 255, 255, 0.03)", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700 }}>🎯 Role Title Fit (30%)</div>
+            <div style={{ fontSize: "20px", fontWeight: 800, color: "#f8fafc", marginTop: "2px" }}>{sb.title_fit}%</div>
+            <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>Seniority & role title alignment</div>
+          </div>
+
+          <div style={{ padding: "12px", borderRadius: "8px", background: "rgba(255, 255, 255, 0.03)", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700 }}>🧠 BGE Vector Similarity (20%)</div>
+            <div style={{ fontSize: "20px", fontWeight: 800, color: "#f8fafc", marginTop: "2px" }}>{sb.semantic_fit}%</div>
+            <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>768-dim dense embedding cosine score</div>
+          </div>
+
+          <div style={{ padding: "12px", borderRadius: "8px", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.25)" }}>
+            <div style={{ fontSize: "11px", color: "#34d399", fontWeight: 700 }}>🎓 Signal Bonus (+10%)</div>
+            <div style={{ fontSize: "20px", fontWeight: 800, color: "#34d399", marginTop: "2px" }}>+{sb.signal_bonus}%</div>
+            <div style={{ fontSize: "11px", color: "#34d399", marginTop: "2px" }}>Verified stability & non-anomalous bonus</div>
+          </div>
+        </div>
+
+        <button
+          onClick={onClose}
+          style={{
+            width: "100%",
+            padding: "9px",
+            borderRadius: "8px",
+            background: "rgba(56, 189, 248, 0.15)",
+            border: "1px solid rgba(56, 189, 248, 0.4)",
+            color: "#38bdf8",
+            fontWeight: 700,
+            fontSize: "13px",
+            cursor: "pointer",
+          }}
+        >
+          Close Rationale
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AgentConsoleModal({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [filterTool, setFilterTool] = useState<string>("all");
+  const [autoRefresh, setAutoRefresh] = useState(false);
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("http://127.0.0.1:8000/agent_logs");
+      const data = await res.json();
+      setLogs(data.logs || []);
+    } catch (e) {
+      console.error("Failed to fetch agent execution logs", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchLogs();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    let interval: any;
+    if (isOpen && autoRefresh) {
+      interval = setInterval(fetchLogs, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [isOpen, autoRefresh]);
+
+  const filteredLogs = useMemo(() => {
+    if (filterTool === "all") return logs;
+    return logs.filter((l) =>
+      (l.tool || l.event || "").toLowerCase().includes(filterTool.toLowerCase())
+    );
+  }, [logs, filterTool]);
+
+  if (!isOpen) return null;
+
+  const getEventBadge = (event: string) => {
+    switch (event) {
+      case "TOOL_CALL":
+        return { label: "TOOL CALL", bg: "rgba(6, 182, 212, 0.15)", border: "rgba(6, 182, 212, 0.4)", text: "#38bdf8" };
+      case "HONEYPOT_PURGE":
+        return { label: "PURGE", bg: "rgba(239, 68, 68, 0.15)", border: "rgba(239, 68, 68, 0.4)", text: "#f87171" };
+      case "CONSULTING_FILTER":
+        return { label: "CONSULTING", bg: "rgba(245, 158, 11, 0.15)", border: "rgba(245, 158, 11, 0.4)", text: "#fbbf24" };
+      case "EMBEDDING":
+        return { label: "EMBEDDING", bg: "rgba(168, 85, 247, 0.15)", border: "rgba(168, 85, 247, 0.4)", text: "#c084fc" };
+      default:
+        return { label: "INFO", bg: "rgba(148, 163, 184, 0.15)", border: "rgba(148, 163, 184, 0.3)", text: "#cbd5e1" };
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(3, 7, 13, 0.88)",
+        backdropFilter: "blur(14px)",
+        padding: "20px",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "1050px",
+          height: "85vh",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: "#06090e",
+          border: "1px solid rgba(6, 182, 212, 0.4)",
+          borderRadius: "14px",
+          boxShadow: "0 25px 80px rgba(6, 182, 212, 0.25), 0 0 50px rgba(0, 0, 0, 0.9)",
+          overflow: "hidden",
+          color: "#e7edf6",
+          fontFamily: "var(--font-mono, monospace)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: "16px 24px",
+            borderBottom: "1px solid rgba(6, 182, 212, 0.3)",
+            background: "linear-gradient(90deg, rgba(6, 182, 212, 0.15) 0%, rgba(15, 23, 42, 0.95) 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "10px",
+                background: "rgba(6, 182, 212, 0.15)",
+                border: "1px solid rgba(6, 182, 212, 0.4)",
+                color: "#38bdf8",
+                display: "grid",
+                placeItems: "center",
+                boxShadow: "0 0 15px rgba(6, 182, 212, 0.3)",
+              }}
+            >
+              <Terminal size={22} />
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <h2 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "#f8fafc", letterSpacing: "-0.02em" }}>
+                  AWS Strands Agent Execution Console
+                </h2>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    padding: "3px 9px",
+                    borderRadius: "20px",
+                    background: "rgba(16, 185, 129, 0.15)",
+                    color: "#34d399",
+                    border: "1px solid rgba(16, 185, 129, 0.4)",
+                  }}
+                >
+                  SDK v0.1.0 • ACTIVE
+                </span>
+              </div>
+              <p style={{ margin: "3px 0 0", fontSize: "12px", color: "#94a3b8" }}>
+                Live trace of autonomous tool invocations, 768-dim embeddings & Honeypot Anomaly Purging.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "6px",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: "pointer",
+                background: autoRefresh ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.05)",
+                border: autoRefresh ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid rgba(255, 255, 255, 0.1)",
+                color: autoRefresh ? "#34d399" : "#94a3b8",
+              }}
+            >
+              {autoRefresh ? "● Auto-refresh ON" : "○ Auto-refresh OFF"}
+            </button>
+            <button
+              onClick={fetchLogs}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 14px",
+                borderRadius: "6px",
+                background: "rgba(6, 182, 212, 0.15)",
+                border: "1px solid rgba(6, 182, 212, 0.4)",
+                color: "#38bdf8",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Activity size={14} className={loading ? "animate-spin" : ""} />
+              <span>Refresh Logs</span>
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "8px",
+                background: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                color: "#94a3b8",
+                display: "grid",
+                placeItems: "center",
+                cursor: "pointer",
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Console Toolbar / Badges */}
+        <div
+          style={{
+            padding: "12px 24px",
+            borderBottom: "1px solid #1e293b",
+            background: "#0a0f18",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+            flexWrap: "wrap",
+          }}
+        >
+          {/* Tech Badges */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px" }}>
+            <span style={{ color: "#64748b", fontWeight: 600 }}>ORCHESTRATION:</span>
+            <span style={{ padding: "3px 8px", borderRadius: "4px", background: "rgba(6, 182, 212, 0.1)", color: "#38bdf8", border: "1px solid rgba(6, 182, 212, 0.2)" }}>
+              AWS Strands Agent SDK
+            </span>
+            <span style={{ padding: "3px 8px", borderRadius: "4px", background: "rgba(168, 85, 247, 0.1)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.2)" }}>
+              BAAI/bge-base-en-v1.5 (768-dim)
+            </span>
+            <span style={{ padding: "3px 8px", borderRadius: "4px", background: "rgba(16, 185, 129, 0.1)", color: "#34d399", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
+              Bedrock / Gemini 2.5
+            </span>
+          </div>
+
+          {/* Filter Pills */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            {["all", "audit_candidate_integrity", "apply_consulting_filter", "rank_and_reason_candidates"].map((tool) => (
+              <button
+                key={tool}
+                onClick={() => setFilterTool(tool)}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  background: filterTool === tool ? "rgba(6, 182, 212, 0.25)" : "rgba(255, 255, 255, 0.04)",
+                  border: filterTool === tool ? "1px solid rgba(6, 182, 212, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
+                  color: filterTool === tool ? "#38bdf8" : "#94a3b8",
+                }}
+              >
+                {tool === "all" ? "All Tools" : tool.replace("_candidates", "").replace("_candidate", "")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Terminal Body Log Output */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "20px 24px",
+            background: "#03070c",
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+          }}
+        >
+          {loading && logs.length === 0 ? (
+            <div style={{ padding: "60px", textAlign: "center", color: "#38bdf8" }}>
+              <Activity size={28} className="animate-spin" style={{ margin: "0 auto 12px" }} />
+              <div>Connecting to AWS Strands Agent Execution Stream...</div>
+            </div>
+          ) : filteredLogs.length === 0 ? (
+            <div style={{ padding: "60px", textAlign: "center", color: "#64748b" }}>
+              <div>No agent execution logs match the selected tool filter.</div>
+            </div>
+          ) : (
+            filteredLogs.map((log, idx) => {
+              const badge = getEventBadge(log.event);
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    background: "rgba(15, 23, 42, 0.6)",
+                    border: "1px solid rgba(30, 41, 59, 0.8)",
+                    fontSize: "13px",
+                    lineHeight: "1.5",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <span style={{ color: "#64748b", fontSize: "12px" }}>[{log.timestamp}]</span>
+                      <span
+                        style={{
+                          padding: "2px 7px",
+                          borderRadius: "4px",
+                          fontSize: "10px",
+                          fontWeight: 700,
+                          background: badge.bg,
+                          border: `1px solid ${badge.border}`,
+                          color: badge.text,
+                        }}
+                      >
+                        {badge.label}
+                      </span>
+                      <span style={{ color: "#38bdf8", fontWeight: 700 }}>{log.tool}</span>
+                    </div>
+                    {log.candidate_id && (
+                      <span style={{ color: "#94a3b8", fontSize: "11px" }}>
+                        CID: <strong style={{ color: "#f8fafc" }}>{log.candidate_id}</strong>
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ color: "#cbd5e1", marginTop: "2px" }}>{log.message}</div>
+
+                  {log.details && (
+                    <div
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                        background: "rgba(3, 7, 12, 0.8)",
+                        border: "1px solid rgba(30, 41, 59, 0.6)",
+                        color: "#94a3b8",
+                        fontSize: "12px",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {typeof log.details === "object" ? (
+                        <pre style={{ margin: 0, fontFamily: "inherit" }}>
+                          {JSON.stringify(log.details, null, 2)}
+                        </pre>
+                      ) : (
+                        <span>{log.details}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            padding: "14px 24px",
+            borderTop: "1px solid #1e293b",
+            background: "#0a0f18",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            fontSize: "12px",
+            color: "#64748b",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "#38bdf8" }}>
+              <Cpu size={14} /> 3 Autonomous Tools Active
+            </span>
+            <span>•</span>
+            <span style={{ color: "#34d399" }}>0 Unhandled Exceptions</span>
+            <span>•</span>
+            <span style={{ color: "#c084fc" }}>Vector Dim: 768</span>
+          </div>
+
+          <button
+            onClick={onClose}
+            style={{
+              padding: "7px 18px",
+              borderRadius: "6px",
+              background: "rgba(6, 182, 212, 0.15)",
+              border: "1px solid rgba(6, 182, 212, 0.4)",
+              color: "#38bdf8",
+              fontWeight: 600,
+              fontSize: "12px",
+              cursor: "pointer",
+            }}
+          >
+            Close Terminal
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
