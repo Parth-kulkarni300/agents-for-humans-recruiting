@@ -18,6 +18,7 @@ import {
   Cpu,
   Crosshair,
   Database,
+  Download,
   FileText,
   Filter,
   GraduationCap,
@@ -25,10 +26,14 @@ import {
   MapPin,
   Mic,
   MicOff,
+  Bot,
+  Minus,
   Search,
+  Send,
   ShieldCheck,
   Sparkles,
   Square,
+  Star,
   Terminal,
   Upload,
   UserRound,
@@ -50,6 +55,7 @@ type Candidate = {
   headline: string;
   raw: string;
   fit: string;
+  isShortlisted?: boolean;
   scoreBreakdown?: {
     title_fit: number;
     skill_coverage: number;
@@ -68,7 +74,7 @@ type Candidate = {
     title: string;
     period: string;
     impact: string;
-  }[];
+    }[];
   skills: { name: string; level: string; value: number }[];
 };
 
@@ -174,6 +180,7 @@ function StatusDot() {
 export default function RecruitShieldApp() {
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [shortlistedIds, setShortlistedIds] = useState<Set<number>>(new Set());
   
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -185,6 +192,109 @@ export default function RecruitShieldApp() {
     shortlisted_count: 0,
     total_ranked: 0
   });
+
+  const [screen, setScreen] = useState<"landing" | "ingest" | "pipeline" | "deepdive">("landing");
+  const [selected, setSelected] = useState<Candidate>(candidates[0]);
+  const [query, setQuery] = useState("");
+  const [threshold, setThreshold] = useState(0);
+  const [locations, setLocations] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [files, setFiles] = useState<string[]>([]);
+  const [jd, setJd] = useState("");
+  const [jdSkills, setJdSkills] = useState<string[]>([]);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [jdLocations, setJdLocations] = useState<string[]>([]);
+  const [jdWorkModes, setJdWorkModes] = useState<string[]>([]);
+  const [expBuckets, setExpBuckets] = useState<string[]>([]);
+  const [workModes, setWorkModes] = useState<string[]>([]);
+  const [eduLevels, setEduLevels] = useState<string[]>([]);
+  const [openToRelocation, setOpenToRelocation] = useState(false);
+  const [activeTab, setActiveTab] = useState<'eligible' | 'unaligned' | 'all' | 'shortlisted'>('eligible');
+  const [isHowItWorksOpen, setIsHowItWorksOpen] = useState(false);
+
+  const expBucketMatch = (exp: number) => {
+    if (expBuckets.length === 0) return true;
+    return expBuckets.some(b => {
+      if (b === 'Fresher') return exp <= 1;
+      if (b === '0-2')    return exp >= 0 && exp <= 2;
+      if (b === '2-5')    return exp >= 2 && exp <= 5;
+      if (b === '5+')     return exp >= 5;
+      return true;
+    });
+  };
+
+  const cutoff = threshold > 0 ? threshold : 55;
+
+  const dynamicEligibleCount = useMemo(() => {
+    return candidates.filter((c) => {
+      if (c.score < cutoff) return false;
+      if (c.score < threshold) return false;
+      if (!expBucketMatch(c.experience)) return false;
+      if (locations.length > 0 && !locations.some(l => c.location.toLowerCase().includes(l.toLowerCase()))) return false;
+      if (selectedSkills.length > 0 && !selectedSkills.every(s => c.skills.some((cs: any) => (typeof cs === 'string' ? cs : cs.name).toLowerCase() === s.toLowerCase()))) return false;
+      if (eduLevels.length > 0) {
+        const degMap: Record<string, string> = { "Bachelor's": 'bachelor', "Master's": 'master', 'PhD': 'phd' };
+        if (!eduLevels.some(e => c.highestDegree === degMap[e])) return false;
+      }
+      if (openToRelocation && !c.willingToRelocate) return false;
+      if (!`${c.name} ${c.role} ${c.location}`.toLowerCase().includes(query.toLowerCase())) return false;
+      return true;
+    }).length;
+  }, [candidates, cutoff, threshold, expBuckets, locations, selectedSkills, eduLevels, openToRelocation, query]);
+
+  const dynamicUnalignedCount = useMemo(() => {
+    const totalCount = stats.total_candidates > 0 ? stats.total_candidates : candidates.length;
+    const honeypotCount = stats.honeypot_count || 0;
+    return Math.max(0, totalCount - dynamicEligibleCount - honeypotCount);
+  }, [stats.total_candidates, stats.honeypot_count, candidates.length, dynamicEligibleCount]);
+
+  // Dynamic calculation of stats for metric cards & filters
+  const effectiveStats = useMemo(() => {
+    return {
+      ...stats,
+      eligible_candidates: dynamicEligibleCount,
+      unaligned_jd_count: dynamicUnalignedCount,
+      shortlisted_count: shortlistedIds.size
+    };
+  }, [stats, dynamicEligibleCount, dynamicUnalignedCount, shortlistedIds]);
+
+  const categoryFiltered = useMemo(() => {
+    return candidates.filter((c) => {
+      if (activeTab === 'eligible') {
+        return c.score >= cutoff;
+      } else if (activeTab === 'unaligned') {
+        return c.score < cutoff;
+      } else if (activeTab === 'shortlisted') {
+        return (c as any).isShortlisted === true;
+      }
+      return true; // 'all'
+    });
+  }, [candidates, activeTab, cutoff]);
+
+  const filtered = useMemo(
+    () =>
+      categoryFiltered.filter((c) => {
+        // Match score
+        if (c.score < threshold) return false;
+        // Experience bucket
+        if (!expBucketMatch(c.experience)) return false;
+        // Location
+        if (locations.length > 0 && !locations.some(l => c.location.toLowerCase().includes(l.toLowerCase()))) return false;
+        // Required skills
+        if (selectedSkills.length > 0 && !selectedSkills.every(s => c.skills.some((cs: any) => (typeof cs === 'string' ? cs : cs.name).toLowerCase() === s.toLowerCase()))) return false;
+        // Education
+        if (eduLevels.length > 0) {
+          const degMap: Record<string, string> = { "Bachelor's": 'bachelor', "Master's": 'master', 'PhD': 'phd' };
+          if (!eduLevels.some(e => c.highestDegree === degMap[e])) return false;
+        }
+        // Open to relocation
+        if (openToRelocation && !c.willingToRelocate) return false;
+        // Text search
+        if (!`${c.name} ${c.role} ${c.location}`.toLowerCase().includes(query.toLowerCase())) return false;
+        return true;
+      }),
+    [query, threshold, expBuckets, locations, selectedSkills, eduLevels, openToRelocation, categoryFiltered],
+  );
 
   // API: Fetch shortlist
   const fetchShortlist = async (p = 1) => {
@@ -198,8 +308,9 @@ export default function RecruitShieldApp() {
       if (data.page) setPage(data.page);
       if (data.total_pages) setTotalPages(data.total_pages);
 
-      const mapped = (data.shortlist || []).map((c: any) => {
+      const mapped = (data.shortlist || []).map((c: any, idx: number) => {
         const tones = ["cyan", "violet", "blue", "orange", "green"];
+        const candId = c.candidate_id || c.rank || (idx + 1);
         
         // Map backend skills to v0 format — use real proficiency and duration
         const proficiencyToLevel = (p: string) => {
@@ -246,7 +357,7 @@ export default function RecruitShieldApp() {
         })();
 
         return {
-          id: c.candidate_id || c.rank,
+          id: candId,
           rank: c.rank,
           name: c.name,
           role: c.current_title,
@@ -258,6 +369,7 @@ export default function RecruitShieldApp() {
           headline: c.headline,
           raw: c.score ? c.score.toFixed(4) : "0.0000",
           fit: c.reasoning,
+          isShortlisted: shortlistedIds.has(candId),
           scoreBreakdown: c.score_breakdown || {
             skill_coverage: Math.round(c.score * 85),
             title_fit: Math.round(c.score * 90),
@@ -289,30 +401,7 @@ export default function RecruitShieldApp() {
     fetchShortlist(1);
   }, []);
 
-  const [screen, setScreen] = useState<
-    "landing" | "ingest" | "pipeline" | "deepdive"
-  >("landing");
-  const [selected, setSelected] = useState<Candidate>(candidates[0]);
-  const [query, setQuery] = useState("");
-  const [threshold, setThreshold] = useState(0);
-  const [locations, setLocations] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [files, setFiles] = useState<string[]>([]);
-  const [jd, setJd] = useState("");
-  const [jdSkills, setJdSkills] = useState<string[]>([]);
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [jdLocations, setJdLocations] = useState<string[]>([]);
-  const [jdWorkModes, setJdWorkModes] = useState<string[]>([]);
-  // Experience buckets: 'Fresher' | '0-2' | '2-5' | '5+'
-  const [expBuckets, setExpBuckets] = useState<string[]>([]);
-  // Work mode filter
-  const [workModes, setWorkModes] = useState<string[]>([]);
-  // Education filter
-  const [eduLevels, setEduLevels] = useState<string[]>([]);
-  // Open to relocation
-  const [openToRelocation, setOpenToRelocation] = useState(false);
-  // Active category tab: 'eligible' (default) | 'unaligned' | 'all' | 'shortlisted'
-  const [activeTab, setActiveTab] = useState<'eligible' | 'unaligned' | 'all' | 'shortlisted'>('eligible');
+
 
   // Dynamic extraction hook for typed, pasted, or uploaded JDs
   useEffect(() => {
@@ -377,56 +466,203 @@ export default function RecruitShieldApp() {
     if (foundModes.size > 0) setJdWorkModes(Array.from(foundModes));
   }, [jd]);
 
-  const expBucketMatch = (exp: number) => {
-    if (expBuckets.length === 0) return true;
-    return expBuckets.some(b => {
-      if (b === 'Fresher') return exp <= 1;
-      if (b === '0-2')    return exp >= 0 && exp <= 2;
-      if (b === '2-5')    return exp >= 2 && exp <= 5;
-      if (b === '5+')     return exp >= 5;
-      return true;
+
+
+  const toggleShortlist = (id: number) => {
+    setShortlistedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
     });
+
+    setCandidates((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, isShortlisted: !c.isShortlisted } : c))
+    );
   };
 
-  const cutoff = threshold > 0 ? threshold : 55;
+  const handleShortlistPage = () => {
+    if (filtered.length === 0) return;
+    const pageCandidateIds = filtered.map((c) => c.id);
+    const allPageStarred = filtered.every((c) => (c as any).isShortlisted);
 
-  const categoryFiltered = useMemo(() => {
-    return candidates.filter((c) => {
-      if (activeTab === 'eligible') {
-        return c.score >= cutoff;
-      } else if (activeTab === 'unaligned') {
-        return c.score < cutoff;
-      } else if (activeTab === 'shortlisted') {
-        return (c as any).isShortlisted === true;
-      }
-      return true; // 'all'
-    });
-  }, [candidates, activeTab, cutoff]);
-
-  const filtered = useMemo(
-    () =>
-      categoryFiltered.filter((c) => {
-        // Match score
-        if (c.score < threshold) return false;
-        // Experience bucket
-        if (!expBucketMatch(c.experience)) return false;
-        // Location
-        if (locations.length > 0 && !locations.some(l => c.location.toLowerCase().includes(l.toLowerCase()))) return false;
-        // Required skills
-        if (selectedSkills.length > 0 && !selectedSkills.every(s => c.skills.some((cs: any) => cs.name.toLowerCase() === s.toLowerCase()))) return false;
-        // Education
-        if (eduLevels.length > 0) {
-          const degMap: Record<string, string> = { "Bachelor's": 'bachelor', "Master's": 'master', 'PhD': 'phd' };
-          if (!eduLevels.some(e => c.highestDegree === degMap[e])) return false;
+    setShortlistedIds((prev) => {
+      const next = new Set(prev);
+      pageCandidateIds.forEach((id) => {
+        if (allPageStarred) {
+          next.delete(id);
+        } else {
+          next.add(id);
         }
-        // Open to relocation
-        if (openToRelocation && !c.willingToRelocate) return false;
-        // Text search
-        if (!`${c.name} ${c.role} ${c.location}`.toLowerCase().includes(query.toLowerCase())) return false;
-        return true;
-      }),
-    [query, threshold, expBuckets, locations, selectedSkills, eduLevels, openToRelocation, categoryFiltered],
-  );
+      });
+      return next;
+    });
+
+    setCandidates((prev) =>
+      prev.map((c) => {
+        if (pageCandidateIds.includes(c.id)) {
+          return { ...c, isShortlisted: !allPageStarred };
+        }
+        return c;
+      })
+    );
+  };
+
+  const isAllPageShortlisted = useMemo(() => {
+    if (filtered.length === 0) return false;
+    return filtered.every((c) => (c as any).isShortlisted);
+  }, [filtered]);
+
+  const handleExportShortlist = (candidatesToExport: Candidate[]) => {
+    const listToUse = candidatesToExport.length > 0
+      ? candidatesToExport
+      : candidates.filter(c => (c as any).isShortlisted);
+
+    if (listToUse.length === 0) {
+      alert("⚠️ No candidates in shortlist to export. Please star candidates first!");
+      return;
+    }
+
+    const currentDate = new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    const htmlContent = `
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset="utf-8" />
+  <title>Shortlisted Candidates Report - RecruitShield AI</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
+  <style>
+    @page {
+      size: 11in 8.5in;
+      margin: 0.5in;
+    }
+    @page Section1 {
+      size: 11in 8.5in;
+      margin: 0.5in;
+      mso-header-margin: 0.5in;
+      mso-footer-margin: 0.5in;
+      mso-paper-source: 0;
+    }
+    div.Section1 { page: Section1; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 15px; color: #0f172a; background: #fff; line-height: 1.4; }
+    .header { border-bottom: 3px solid #0284c7; padding-bottom: 12px; margin-bottom: 18px; }
+    .header-table { width: 100%; border: none; }
+    .header h1 { color: #0f172a; margin: 0 0 4px 0; font-size: 22px; font-weight: bold; }
+    .header p { color: #64748b; margin: 0; font-size: 12px; }
+    .summary-card { background: #f0f9ff; border: 1px solid #bae6fd; padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; }
+    .summary-table { width: 100%; border: none; }
+    .summary-item { font-size: 12px; color: #0369a1; vertical-align: top; }
+    .summary-item b { font-size: 15px; color: #0284c7; display: block; margin-top: 2px; }
+    table.report-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; table-layout: fixed; border: 1px solid #cbd5e1; }
+    table.report-table th { background: #0f172a; color: #ffffff; text-align: left; padding: 8px 10px; font-size: 11px; text-transform: uppercase; word-wrap: break-word; }
+    table.report-table td { border-bottom: 1px solid #e2e8f0; padding: 8px 10px; vertical-align: top; font-size: 11px; word-wrap: break-word; word-break: normal; white-space: normal; overflow-wrap: break-word; }
+    tr:nth-child(even) { background: #f8fafc; }
+    .candidate-name { font-weight: bold; color: #0f172a; font-size: 12px; }
+    .headline { font-size: 11px; color: #64748b; margin-top: 2px; }
+    .score-pill { display: inline-block; background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; font-weight: bold; padding: 2px 6px; border-radius: 8px; font-size: 11px; }
+    .verified-tag { color: #16a34a; font-weight: bold; font-size: 10px; }
+    .footer { margin-top: 25px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }
+  </style>
+</head>
+<body>
+<div class="Section1">
+  <div class="header">
+    <table class="header-table">
+      <tr>
+        <td style="border: none; padding: 0;">
+          <h1>🛡️ RecruitShield AI — Executive Shortlist Report</h1>
+          <p>Autonomous Recruiter Intelligence & Candidate Verification | AWS Strands Agents SDK</p>
+        </td>
+        <td style="border: none; padding: 0; text-align: right; font-size: 12px; color: #64748b; vertical-align: bottom;">
+          Date: <strong>${currentDate}</strong>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="summary-card">
+    <table class="summary-table">
+      <tr>
+        <td class="summary-item" style="border: none; width: 33%;">
+          Total Shortlisted
+          <b>${listToUse.length} Candidate(s)</b>
+        </td>
+        <td class="summary-item" style="border: none; width: 33%;">
+          Verification Status
+          <b>100% 5-Point Firewall Inspected</b>
+        </td>
+        <td class="summary-item" style="border: none; width: 34%;">
+          Ranking Engine
+          <b>BAAI/bge-base-en-v1.5 Neural Vector</b>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <table class="report-table">
+    <thead>
+      <tr>
+        <th style="width: 7%;">Rank</th>
+        <th style="width: 20%;">Candidate Details</th>
+        <th style="width: 14%;">Target Role</th>
+        <th style="width: 12%;">Location</th>
+        <th style="width: 9%;">Experience</th>
+        <th style="width: 10%;">Match Score</th>
+        <th style="width: 28%;">AI Recruiter Summary</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${listToUse.map((c, idx) => `
+        <tr>
+          <td><strong>#${String(c.rank || idx + 1).padStart(2, '0')}</strong></td>
+          <td>
+            <div class="candidate-name">${c.name}</div>
+            <div class="headline">${c.headline || ''}</div>
+            <span class="verified-tag">✓ Verified Profile</span>
+          </td>
+          <td><strong>${c.role}</strong></td>
+          <td>${c.location}</td>
+          <td>${c.experience} yrs</td>
+          <td><span class="score-pill">${c.score} / 100</span></td>
+          <td style="color: #334155; line-height: 1.4;">${c.fit || 'Qualified candidate matching core requirements.'}</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    Report generated automatically by RecruitShield AI (AWS Strands Agents SDK Co-Pilot)
+  </div>
+</div>
+</body>
+</html>
+    `;
+
+    const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Shortlisted_Candidates_Report_${new Date().toISOString().slice(0, 10)}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const analyze = async () => {
     setLoading(true);
@@ -475,7 +711,16 @@ export default function RecruitShieldApp() {
   };
 
   if (screen === "landing")
-    return <Landing onLaunch={() => setScreen("ingest")} />;
+    return (
+      <>
+        <Landing onLaunch={() => setScreen("ingest")} onOpenHowItWorks={() => setIsHowItWorksOpen(true)} />
+        <HowItWorksModal
+          isOpen={isHowItWorksOpen}
+          onClose={() => setIsHowItWorksOpen(false)}
+          onLaunchWorkspace={() => setScreen("ingest")}
+        />
+      </>
+    );
   if (screen === "ingest")
     return (
       <>
@@ -500,11 +745,23 @@ export default function RecruitShieldApp() {
           isOpen={showAgentConsoleModal}
           onClose={() => setShowAgentConsoleModal(false)}
         />
+        <HowItWorksModal
+          isOpen={isHowItWorksOpen}
+          onClose={() => setIsHowItWorksOpen(false)}
+          onLaunchWorkspace={() => setScreen("pipeline")}
+        />
       </>
     );
   if (screen === "deepdive")
     return (
-      <DeepDive candidate={selected} onBack={() => setScreen("pipeline")} />
+      <>
+        <DeepDive candidate={selected} onBack={() => setScreen("pipeline")} />
+        <HowItWorksModal
+          isOpen={isHowItWorksOpen}
+          onClose={() => setIsHowItWorksOpen(false)}
+          onLaunchWorkspace={() => setScreen("pipeline")}
+        />
+      </>
     );
   const resetAllFilters = () => {
     setThreshold(0);
@@ -521,7 +778,7 @@ export default function RecruitShieldApp() {
       <Pipeline
         candidates={candidates}
         filtered={filtered}
-        stats={stats}
+        stats={effectiveStats}
         page={page}
         totalPages={totalPages}
         activeTab={activeTab}
@@ -554,6 +811,10 @@ export default function RecruitShieldApp() {
         }}
         onOpenHoneypots={fetchHoneypots}
         onOpenAgentConsole={() => setShowAgentConsoleModal(true)}
+        onToggleShortlist={toggleShortlist}
+        onShortlistPage={handleShortlistPage}
+        isAllPageShortlisted={isAllPageShortlisted}
+        onExportShortlist={handleExportShortlist}
       />
       <HoneypotModal
         isOpen={showHoneypotsModal}
@@ -570,25 +831,31 @@ export default function RecruitShieldApp() {
         isOpen={!!breakdownCandidate}
         onClose={() => setBreakdownCandidate(null)}
       />
+      <HowItWorksModal
+        isOpen={isHowItWorksOpen}
+        onClose={() => setIsHowItWorksOpen(false)}
+        onLaunchWorkspace={() => setScreen("pipeline")}
+      />
+      <AIChatbotWidget />
     </>
   );
 }
 
-function Landing({ onLaunch }: { onLaunch: () => void }) {
+function Landing({ onLaunch, onOpenHowItWorks }: { onLaunch: () => void; onOpenHowItWorks: () => void }) {
   return (
     <main className="min-h-screen overflow-hidden">
       <header className="site-header">
         <Logo />
         <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
           <a href="#signal">Platform</a>
-          <a href="#how">How it works</a>
+          <a href="#how" onClick={(e) => { e.preventDefault(); onOpenHowItWorks(); }}>How it works</a>
           <a href="#security">Security</a>
         </nav>
         <div className="flex items-center gap-4">
           <span className="hidden micro-label text-muted-foreground sm:block">
             V 1.4.0 / BETA
           </span>
-          <button className="icon-button" aria-label="Help">
+          <button className="icon-button" onClick={onOpenHowItWorks} aria-label="Help">
             <CircleHelp size={17} />
           </button>
         </div>
@@ -611,7 +878,7 @@ function Landing({ onLaunch }: { onLaunch: () => void }) {
           </p>
           <div className="flex flex-wrap items-center gap-4">
             <GlowButton onClick={onLaunch}>Launch workspace</GlowButton>
-            <button className="text-button">
+            <button className="text-button" onClick={onOpenHowItWorks}>
               <PlayIcon /> See how it works
             </button>
           </div>
@@ -1089,10 +1356,12 @@ function Ingest({
 function WorkspaceHeader({
   step,
   onBack,
+  onOpenHowItWorks,
 }: {
   step: string;
   onBack: () => void;
   onOpenAgentConsole?: () => void;
+  onOpenHowItWorks?: () => void;
 }) {
   return (
     <header className="workspace-header">
@@ -1103,6 +1372,11 @@ function WorkspaceHeader({
       <div className="flex items-center gap-4">
         <span className="micro-label text-muted-foreground">{step}</span>
         <StatusDot />
+        {onOpenHowItWorks && (
+          <button className="icon-button" onClick={onOpenHowItWorks} title="How it works & Platform Guide">
+            <CircleHelp size={16} />
+          </button>
+        )}
         <button className="icon-button">
           <Bell size={16} />
         </button>
@@ -1145,6 +1419,10 @@ function Pipeline({
   onSelect,
   onOpenHoneypots,
   onOpenAgentConsole,
+  onToggleShortlist,
+  onShortlistPage,
+  isAllPageShortlisted,
+  onExportShortlist,
 }: {
   candidates: Candidate[];
   filtered: Candidate[];
@@ -1178,7 +1456,13 @@ function Pipeline({
   onSelect: (c: Candidate) => void;
   onOpenHoneypots: () => void;
   onOpenAgentConsole?: () => void;
+  onToggleShortlist: (id: number) => void;
+  onShortlistPage: () => void;
+  isAllPageShortlisted: boolean;
+  onExportShortlist: (candidatesToExport: Candidate[]) => void;
 }) {
+  const [isAnalyseModalOpen, setIsAnalyseModalOpen] = useState(false);
+
   const toggleExpBucket = (b: string) =>
     setExpBuckets(
       expBuckets.includes(b) ? expBuckets.filter((x) => x !== b) : [...expBuckets, b]
@@ -1461,6 +1745,30 @@ function Pipeline({
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <button
+                onClick={onShortlistPage}
+                title="Star / Shortlist all candidates visible on this page"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  padding: "8px 14px",
+                  borderRadius: "8px",
+                  background: isAllPageShortlisted
+                    ? "linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(217, 119, 6, 0.15) 100%)"
+                    : "rgba(15, 23, 42, 0.8)",
+                  border: isAllPageShortlisted ? "1px solid rgba(245, 158, 11, 0.6)" : "1px solid #2a394d",
+                  color: isAllPageShortlisted ? "#fbbf24" : "#cbd5e1",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  boxShadow: isAllPageShortlisted ? "0 0 16px rgba(245, 158, 11, 0.25)" : "none",
+                  transition: "all 0.2s ease"
+                }}
+              >
+                <Star size={15} style={{ color: "#fbbf24", fill: isAllPageShortlisted ? "#fbbf24" : "none" }} />
+                <span>{isAllPageShortlisted ? "Unshortlist Complete Page" : "Shortlist Complete Page"}</span>
+              </button>
+              <button
                 onClick={onOpenAgentConsole}
                 style={{
                   display: "flex",
@@ -1529,17 +1837,74 @@ function Pipeline({
               onClick={() => setActiveTab('shortlisted')}
             />
           </div>
-          <div style={{ marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "14px", fontWeight: 600, color: "#e2e8f0" }}>
-              {activeTab === 'eligible' && "🟢 Displaying Eligible Candidates (Matching JD)"}
-              {activeTab === 'unaligned' && "🔴 Displaying Candidates Not Aligned to JD"}
-              {activeTab === 'all' && "🌐 Displaying All Candidates in Database"}
-              {activeTab === 'shortlisted' && "⭐ Displaying Shortlisted Candidates"}
-            </span>
+          <div style={{ marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+              <span style={{ fontSize: "14px", fontWeight: 600, color: "#e2e8f0" }}>
+                {activeTab === 'eligible' && "🟢 Displaying Eligible Candidates (Matching JD)"}
+                {activeTab === 'unaligned' && "🔴 Displaying Candidates Not Aligned to JD"}
+                {activeTab === 'all' && "🌐 Displaying All Candidates in Database"}
+                {activeTab === 'shortlisted' && "⭐ Displaying Shortlisted Candidates"}
+              </span>
+              {activeTab === 'shortlisted' && (
+                <>
+                  <button
+                    onClick={() => setIsAnalyseModalOpen(true)}
+                    title="Analyse shortlisted candidates digitally with interactive graphs & pie charts"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "6px 14px",
+                      borderRadius: "6px",
+                      background: "linear-gradient(135deg, rgba(56, 189, 248, 0.25) 0%, rgba(3, 105, 161, 0.15) 100%)",
+                      border: "1px solid rgba(56, 189, 248, 0.5)",
+                      color: "#38bdf8",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      boxShadow: "0 0 12px rgba(56, 189, 248, 0.25)",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    <BarChart3 size={14} style={{ color: "#38bdf8" }} />
+                    <span>Analyse Digitally</span>
+                  </button>
+
+                  <button
+                    onClick={() => onExportShortlist(filtered)}
+                    title="Download executive PDF/Doc report of shortlisted candidates"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "6px 14px",
+                      borderRadius: "6px",
+                      background: "linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.15) 100%)",
+                      border: "1px solid rgba(16, 185, 129, 0.5)",
+                      color: "#34d399",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      boxShadow: "0 0 12px rgba(16, 185, 129, 0.2)",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    <Download size={14} style={{ color: "#34d399" }} />
+                    <span>Export Shortlist (PDF/Doc)</span>
+                  </button>
+                </>
+              )}
+            </div>
             <span style={{ fontSize: "12px", color: "#94a3b8" }}>
               Dynamic Rank starting at #01
             </span>
           </div>
+
+          <ShortlistAnalyticsModal
+            isOpen={isAnalyseModalOpen}
+            onClose={() => setIsAnalyseModalOpen(false)}
+            candidates={filtered.length > 0 ? filtered : _candidates.filter((c: any) => c.isShortlisted)}
+          />
           <div className="candidate-table">
             <div className="table-head">
               <span>RANK / CANDIDATE</span>
@@ -1547,13 +1912,24 @@ function Pipeline({
               <span>LOCATION</span>
               <span>MATCH SCORE</span>
               <span>STATUS</span>
+              <span style={{ textAlign: "center" }} title="Shortlist candidate">STAR</span>
               <span />
             </div>
             {filtered.length === 0 ? (
               <div className="empty-state">
-                <Search size={24} />
-                <b>No candidates match these filters</b>
-                <span>Try widening the experience or score threshold.</span>
+                {activeTab === 'shortlisted' ? (
+                  <>
+                    <Star size={32} style={{ color: "#fbbf24", filter: "drop-shadow(0 0 10px rgba(251, 191, 36, 0.6))" }} />
+                    <b>No candidates shortlisted yet</b>
+                    <span>Click the ⭐ star icon next to any candidate or click "Shortlist Complete Page" to add them to your shortlist.</span>
+                  </>
+                ) : (
+                  <>
+                    <Search size={24} />
+                    <b>No candidates match these filters</b>
+                    <span>Try widening the experience or score threshold.</span>
+                  </>
+                )}
               </div>
             ) : (
               filtered.map((c, i) => {
@@ -1584,6 +1960,34 @@ function Pipeline({
                   </span>
                   <span className="verified-badge">
                     <Check size={12} /> Verified
+                  </span>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleShortlist(c.id);
+                    }}
+                    title={c.isShortlisted ? "Remove candidate from shortlist" : "Star & add candidate to shortlist"}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: "32px",
+                      height: "32px",
+                      borderRadius: "8px",
+                      background: c.isShortlisted ? "rgba(245, 158, 11, 0.18)" : "rgba(255, 255, 255, 0.04)",
+                      border: c.isShortlisted ? "1px solid rgba(245, 158, 11, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                  >
+                    <Star
+                      size={16}
+                      style={{
+                        color: c.isShortlisted ? "#fbbf24" : "#64748b",
+                        fill: c.isShortlisted ? "#fbbf24" : "none",
+                        filter: c.isShortlisted ? "drop-shadow(0 0 8px rgba(251, 191, 36, 0.85))" : "none"
+                      }}
+                    />
                   </span>
                   <ArrowRight className="row-arrow" size={16} />
                 </button>
@@ -2504,6 +2908,728 @@ function AgentConsoleModal({
             Close Terminal
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AIChatbotWidget() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState<
+    { sender: "ai" | "user"; text: string; time?: string }[]
+  >([
+    {
+      sender: "ai",
+      text: "👋 Hi! I'm your RecruitShield AI Co-Pilot powered by AWS Strands Agents & Bedrock.\n\nAsk me anything about candidate rankings, honeypot prompt injection defenses, or specific candidate qualifications!",
+      time: "Just now",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const quickPrompts = [
+    "Why is the #1 candidate top ranked?",
+    "Explain blocked security honeypots",
+    "Is there any candidate who worked at Wayne Enterprises?",
+    "Summarize top candidates & skills",
+  ];
+
+  const sendMessage = async (textToSend?: string) => {
+    const query = textToSend || input;
+    if (!query.trim() || loading) return;
+
+    const userMsg = { sender: "user" as const, text: query, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+    setMessages((prev) => [...prev, userMsg]);
+    if (!textToSend) setInput("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: query }),
+      });
+      const data = await res.json();
+      const aiResponse = data.response || "No response received from agent.";
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "ai",
+          text: aiResponse,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ]);
+    } catch (err) {
+      console.error("Chat error:", err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "ai",
+          text: "⚠️ Couldn't connect to backend. Please ensure FastAPI server is running on port 8000.",
+          time: "Just now",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Floating Glowing Trigger Button */}
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          title="Open RecruitShield AI Chatbot Co-Pilot"
+          style={{
+            position: "fixed",
+            bottom: "24px",
+            right: "24px",
+            zIndex: 999,
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            padding: "12px 20px",
+            borderRadius: "50px",
+            background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
+            border: "1px solid rgba(56, 189, 248, 0.6)",
+            color: "#ffffff",
+            fontWeight: 700,
+            fontSize: "13px",
+            cursor: "pointer",
+            boxShadow: "0 0 25px rgba(56, 189, 248, 0.45), 0 10px 20px rgba(0, 0, 0, 0.5)",
+            transition: "all 0.3s ease",
+          }}
+        >
+          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+            <Bot size={20} />
+            <span
+              style={{
+                position: "absolute",
+                top: "-2px",
+                right: "-2px",
+                width: "8px",
+                height: "8px",
+                borderRadius: "50%",
+                background: "#34d399",
+                boxShadow: "0 0 8px #34d399",
+              }}
+            />
+          </div>
+          <span>Ask AI Co-Pilot</span>
+        </button>
+      )}
+
+      {/* Floating Chat Drawer Window */}
+      {isOpen && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "24px",
+            right: "24px",
+            zIndex: 1000,
+            width: "400px",
+            height: "560px",
+            maxWidth: "calc(100vw - 32px)",
+            maxHeight: "calc(100vh - 48px)",
+            display: "flex",
+            flexDirection: "column",
+            background: "linear-gradient(180deg, #0f172a 0%, #090d16 100%)",
+            border: "1px solid rgba(56, 189, 248, 0.4)",
+            borderRadius: "20px",
+            boxShadow: "0 20px 50px rgba(0,0,0,0.8), 0 0 30px rgba(56, 189, 248, 0.2)",
+            overflow: "hidden",
+            color: "#f8fafc",
+          }}
+        >
+          {/* Header */}
+          <div
+            style={{
+              padding: "16px 20px",
+              background: "rgba(15, 23, 42, 0.95)",
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ padding: "8px", borderRadius: "10px", background: "rgba(56, 189, 248, 0.15)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#38bdf8" }}>
+                <Bot size={18} />
+              </div>
+              <div>
+                <div style={{ fontSize: "14px", fontWeight: 800, color: "#f8fafc" }}>
+                  RecruitShield AI Co-Pilot
+                </div>
+                <div style={{ fontSize: "11px", color: "#34d399", display: "flex", alignItems: "center", gap: "5px" }}>
+                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#34d399" }} />
+                  AWS Bedrock & Strands Agents
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button
+                onClick={() => setIsOpen(false)}
+                style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "#94a3b8", borderRadius: "6px", padding: "4px 8px", cursor: "pointer" }}
+              >
+                <Minus size={16} />
+              </button>
+              <button
+                onClick={() => setIsOpen(false)}
+                style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "#94a3b8", borderRadius: "6px", padding: "4px 8px", cursor: "pointer" }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Messages Feed */}
+          <div style={{ flex: 1, padding: "16px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "14px" }}>
+            {messages.map((m, idx) => (
+              <div
+                key={idx}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: m.sender === "user" ? "flex-end" : "flex-start",
+                }}
+              >
+                <div
+                  style={{
+                    maxWidth: "85%",
+                    padding: "12px 14px",
+                    borderRadius: m.sender === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                    background: m.sender === "user" ? "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)" : "rgba(30, 41, 59, 0.7)",
+                    border: m.sender === "user" ? "none" : "1px solid rgba(255,255,255,0.08)",
+                    color: "#f8fafc",
+                    fontSize: "12.5px",
+                    lineHeight: 1.5,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {m.text}
+                </div>
+                {m.time && (
+                  <span style={{ fontSize: "10px", color: "#64748b", marginTop: "3px", padding: "0 4px" }}>
+                    {m.time}
+                  </span>
+                )}
+              </div>
+            ))}
+
+            {loading && (
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#38bdf8", fontSize: "12px", padding: "8px 12px", background: "rgba(56, 189, 248, 0.1)", borderRadius: "10px", width: "fit-content" }}>
+                <span className="spinner" /> AI Agent is analyzing context...
+              </div>
+            )}
+          </div>
+
+          {/* Suggested Quick Prompts */}
+          {messages.length < 4 && (
+            <div style={{ padding: "8px 16px", borderTop: "1px solid rgba(255,255,255,0.05)", display: "flex", gap: "6px", overflowX: "auto" }}>
+              {quickPrompts.map((prompt, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendMessage(prompt)}
+                  style={{
+                    whiteSpace: "nowrap",
+                    padding: "5px 10px",
+                    borderRadius: "14px",
+                    background: "rgba(56, 189, 248, 0.1)",
+                    border: "1px solid rgba(56, 189, 248, 0.25)",
+                    color: "#38bdf8",
+                    fontSize: "11px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Input Box */}
+          <div style={{ padding: "12px 16px", background: "rgba(15, 23, 42, 0.95)", borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", gap: "10px", alignItems: "center" }}>
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              placeholder="Ask AI recruiter about candidates..."
+              style={{
+                flex: 1,
+                padding: "10px 14px",
+                borderRadius: "10px",
+                background: "rgba(30, 41, 59, 0.8)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "#f8fafc",
+                fontSize: "12.5px",
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={() => sendMessage()}
+              disabled={loading || !input.trim()}
+              style={{
+                padding: "10px",
+                borderRadius: "10px",
+                background: input.trim() ? "#0284c7" : "rgba(255,255,255,0.08)",
+                border: "none",
+                color: input.trim() ? "#ffffff" : "#64748b",
+                cursor: input.trim() ? "pointer" : "not-allowed",
+              }}
+            >
+              <Send size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function HowItWorksModal({
+  isOpen,
+  onClose,
+  onLaunchWorkspace,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onLaunchWorkspace?: () => void;
+}) {
+  if (!isOpen) return null;
+
+  const steps = [
+    {
+      step: "01",
+      title: "Candidate & Job Description Ingestion",
+      icon: <CloudUpload size={22} style={{ color: "#38bdf8" }} />,
+      desc: "Upload candidate resume files (PDF/DOCX/TXT) or enter a target Job Description. The system parses required skills, experience levels, location constraints, and education signals.",
+      badge: "FastAPI Ingest Engine"
+    },
+    {
+      step: "02",
+      title: "BAAI/bge-base-en-v1.5 Neural Vector Matching",
+      icon: <Cpu size={22} style={{ color: "#34d399" }} />,
+      desc: "Dense 768-dimensional neural vector embeddings compute deep semantic similarity between candidate experience and role requirements, rating match scores from 0 to 100 with zero bias.",
+      badge: "Neural Vector Embeddings"
+    },
+    {
+      step: "03",
+      title: "5-Point Threat Firewall & Honeypot Trap Vault",
+      icon: <ShieldCheck size={22} style={{ color: "#c084fc" }} />,
+      desc: "Scans candidate profiles for hidden prompt injection attacks (e.g. white-font instructions trying to force a 100/100 score), date inconsistencies, and fake skill stuffing, quarantining malicious profiles.",
+      badge: "100% Security Firewall"
+    },
+    {
+      step: "04",
+      title: "Autonomous Agent Orchestration (Agent Console)",
+      icon: <Terminal size={22} style={{ color: "#60a5fa" }} />,
+      desc: "AWS Strands Agents coordinate multi-agent reasoning steps in real-time. Recruiters can monitor live agent thoughts, tool execution, and verification logs in the Agent Console.",
+      badge: "AWS Strands Agents SDK"
+    },
+    {
+      step: "05",
+      title: "Digital Analytics & Executive Report Export",
+      icon: <BarChart3 size={22} style={{ color: "#fbbf24" }} />,
+      desc: "Star/Shortlist top talent, analyze competency pie charts & experience breakdowns using 'Analyse Digitally', and download executive printable .doc / PDF reports for hiring managers.",
+      badge: "1-Click PDF/Doc Export"
+    }
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+      <div style={{
+        background: "linear-gradient(180deg, #0f172a 0%, #080d1a 100%)",
+        border: "1px solid rgba(56, 189, 248, 0.35)",
+        borderRadius: "24px",
+        width: "100%",
+        maxWidth: "920px",
+        maxHeight: "90vh",
+        overflowY: "auto",
+        padding: "32px",
+        color: "#f8fafc",
+        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 40px rgba(56, 189, 248, 0.15)",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px", borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: "18px" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <div style={{ padding: "10px", borderRadius: "12px", background: "rgba(56, 189, 248, 0.15)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#38bdf8" }}>
+                <Zap size={22} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: "22px", fontWeight: 800, margin: 0, color: "#f8fafc", letterSpacing: "-0.01em" }}>
+                  How RecruitShield AI Works
+                </h2>
+                <p style={{ fontSize: "13px", color: "#94a3b8", margin: "4px 0 0 0" }}>
+                  End-to-end architecture: Autonomous Agent Screening, Vector Matching & Threat Firewall
+                </p>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#94a3b8", borderRadius: "50%", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* 5 Steps Process Timeline */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "18px", marginBottom: "28px" }}>
+          {steps.map((item, idx) => (
+            <div
+              key={idx}
+              style={{
+                background: "rgba(30, 41, 59, 0.4)",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                borderRadius: "16px",
+                padding: "20px",
+                display: "flex",
+                gap: "20px",
+                alignItems: "flex-start",
+                transition: "all 0.2s ease"
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
+                <div style={{ width: "42px", height: "42px", borderRadius: "12px", background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(56, 189, 248, 0.3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {item.icon}
+                </div>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: "#64748b" }}>STEP {item.step}</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "6px" }}>
+                  <h3 style={{ fontSize: "16px", fontWeight: 700, color: "#f8fafc", margin: 0 }}>
+                    {item.title}
+                  </h3>
+                  <span style={{ fontSize: "11px", fontWeight: 700, padding: "3px 10px", borderRadius: "20px", background: "rgba(56, 189, 248, 0.15)", border: "1px solid rgba(56, 189, 248, 0.3)", color: "#38bdf8" }}>
+                    {item.badge}
+                  </span>
+                </div>
+                <p style={{ fontSize: "13px", color: "#cbd5e1", margin: 0, lineHeight: 1.5 }}>
+                  {item.desc}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer CTA */}
+        <div style={{ background: "linear-gradient(135deg, rgba(2, 132, 199, 0.15) 0%, rgba(16, 185, 129, 0.15) 100%)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "16px", padding: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "14px" }}>
+          <div>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "#38bdf8" }}>
+              Ready to experience autonomous AI recruiting?
+            </div>
+            <div style={{ fontSize: "12px", color: "#94a3b8" }}>
+              Launch the workspace to rank candidates and inspect honeypot prompt injection defenses.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "12px" }}>
+            <button
+              onClick={onClose}
+              style={{ padding: "9px 18px", borderRadius: "8px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "#cbd5e1", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+            >
+              Close Guide
+            </button>
+            {onLaunchWorkspace && (
+              <button
+                onClick={() => { onClose(); onLaunchWorkspace(); }}
+                style={{ padding: "9px 20px", borderRadius: "8px", background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)", border: "none", color: "#ffffff", fontSize: "12px", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 14px rgba(2, 132, 199, 0.4)" }}
+              >
+                Launch Workspace →
+              </button>
+            )}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+function ShortlistAnalyticsModal({
+  isOpen,
+  onClose,
+  candidates,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  candidates: Candidate[];
+}) {
+  if (!isOpen) return null;
+
+  const total = candidates.length;
+  if (total === 0) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+        <div style={{ background: "#0f172a", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "16px", padding: "32px", maxWidth: "450px", width: "100%", textAlign: "center", color: "#f8fafc" }}>
+          <div style={{ fontSize: "36px", marginBottom: "12px" }}>📊</div>
+          <h3 style={{ fontSize: "18px", fontWeight: 700, margin: "0 0 8px 0" }}>No Shortlisted Candidates Yet</h3>
+          <p style={{ fontSize: "13px", color: "#94a3b8", marginBottom: "20px" }}>Star candidate profiles to generate digital analytics, pie charts, and competency graphs.</p>
+          <button onClick={onClose} style={{ padding: "8px 20px", borderRadius: "8px", background: "#38bdf8", color: "#0f172a", fontWeight: 700, fontSize: "13px", border: "none", cursor: "pointer" }}>Close</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Calculate Metrics
+  const avgScore = (candidates.reduce((acc, c) => acc + (c.score || 0), 0) / total).toFixed(1);
+  const avgExp = (candidates.reduce((acc, c) => acc + (c.experience || 0), 0) / total).toFixed(1);
+
+  // Experience level distribution
+  const juniorCount = candidates.filter((c) => (c.experience || 0) <= 3).length;
+  const midCount = candidates.filter((c) => (c.experience || 0) > 3 && (c.experience || 0) <= 6).length;
+  const seniorCount = candidates.filter((c) => (c.experience || 0) > 6).length;
+
+  const expSlices = [
+    { label: "Senior (7+ yrs)", count: seniorCount, color: "#10b981", percent: Math.round((seniorCount / total) * 100) },
+    { label: "Mid-Level (4-6 yrs)", count: midCount, color: "#3b82f6", percent: Math.round((midCount / total) * 100) },
+    { label: "Junior (0-3 yrs)", count: juniorCount, color: "#a855f7", percent: Math.round((juniorCount / total) * 100) },
+  ].filter(s => s.count > 0);
+
+  // Match score quality distribution
+  const topTier = candidates.filter((c) => (c.score || 0) >= 90).length;
+  const highTier = candidates.filter((c) => (c.score || 0) >= 80 && (c.score || 0) < 90).length;
+  const modTier = candidates.filter((c) => (c.score || 0) < 80).length;
+
+  const scoreSlices = [
+    { label: "Exceptional Match (90-100 pts)", count: topTier, color: "#34d399", percent: Math.round((topTier / total) * 100) },
+    { label: "High Match (80-89 pts)", count: highTier, color: "#38bdf8", percent: Math.round((highTier / total) * 100) },
+    { label: "Moderate Match (<80 pts)", count: modTier, color: "#fbbf24", percent: Math.round((modTier / total) * 100) },
+  ].filter(s => s.count > 0);
+
+  // Aggregated Skills
+  const skillCounts: Record<string, number> = {};
+  candidates.forEach((c) => {
+    if (c.skills && Array.isArray(c.skills)) {
+      c.skills.forEach((s: any) => {
+        const skillName = typeof s === 'string' ? s : s?.name;
+        if (skillName) {
+          skillCounts[skillName] = (skillCounts[skillName] || 0) + 1;
+        }
+      });
+    }
+  });
+
+  const sortedSkills = Object.entries(skillCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  let cumulativePercent = 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+      <div style={{
+        background: "linear-gradient(180deg, #0f172a 0%, #090d16 100%)",
+        border: "1px solid rgba(56, 189, 248, 0.35)",
+        borderRadius: "20px",
+        width: "100%",
+        maxWidth: "900px",
+        maxHeight: "90vh",
+        overflowY: "auto",
+        padding: "28px",
+        color: "#f8fafc",
+        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 30px rgba(56, 189, 248, 0.15)",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px", borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: "16px" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ padding: "8px", borderRadius: "10px", background: "rgba(56, 189, 248, 0.15)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#38bdf8" }}>
+                <BarChart3 size={20} />
+              </div>
+              <h2 style={{ fontSize: "20px", fontWeight: 800, margin: 0, color: "#f8fafc", letterSpacing: "-0.01em" }}>
+                Shortlisted Candidates — Digital Intelligence Analytics
+              </h2>
+            </div>
+            <p style={{ fontSize: "13px", color: "#94a3b8", margin: "4px 0 0 0" }}>
+              Aggregated skill distributions, experience breakdown, and AI match analytics for shortlisted talent.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#94a3b8", borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* 4 Summary Stat Pill Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "14px", marginBottom: "24px" }}>
+          <div style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(56, 189, 248, 0.25)", borderRadius: "12px", padding: "14px 16px" }}>
+            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase" }}>Total Shortlisted</div>
+            <div style={{ fontSize: "22px", fontWeight: 800, color: "#38bdf8", marginTop: "4px" }}>{total} Candidates</div>
+          </div>
+          <div style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(16, 185, 129, 0.25)", borderRadius: "12px", padding: "14px 16px" }}>
+            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase" }}>Avg. Neural Score</div>
+            <div style={{ fontSize: "22px", fontWeight: 800, color: "#34d399", marginTop: "4px" }}>{avgScore} / 100</div>
+          </div>
+          <div style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(168, 85, 247, 0.25)", borderRadius: "12px", padding: "14px 16px" }}>
+            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase" }}>Avg. Experience</div>
+            <div style={{ fontSize: "22px", fontWeight: 800, color: "#c084fc", marginTop: "4px" }}>{avgExp} Years</div>
+          </div>
+          <div style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(251, 191, 36, 0.25)", borderRadius: "12px", padding: "14px 16px" }}>
+            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase" }}>Firewall Status</div>
+            <div style={{ fontSize: "22px", fontWeight: 800, color: "#fbbf24", marginTop: "4px" }}>100% Inspected</div>
+          </div>
+        </div>
+
+        {/* Charts Grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "20px", marginBottom: "24px" }}>
+          
+          {/* Chart 1: Experience Donut Pie Chart */}
+          <div style={{ background: "rgba(30, 41, 59, 0.5)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "14px", padding: "20px" }}>
+            <h3 style={{ fontSize: "14px", fontWeight: 700, color: "#e2e8f0", margin: "0 0 16px 0", display: "flex", alignItems: "center", gap: "8px" }}>
+              <span>🥧 Experience Level Breakdown (Pie Chart)</span>
+            </h3>
+            
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-around", flexWrap: "wrap", gap: "20px" }}>
+              {/* SVG Donut Chart */}
+              <div style={{ position: "relative", width: "130px", height: "130px" }}>
+                <svg viewBox="0 0 100 100" style={{ transform: "rotate(-90deg)", width: "100%", height: "100%" }}>
+                  {expSlices.map((slice, i) => {
+                    const strokeDasharray = `${(slice.percent * 251.2) / 100} 251.2`;
+                    const strokeDashoffset = -((cumulativePercent * 251.2) / 100);
+                    cumulativePercent += slice.percent;
+                    return (
+                      <circle
+                        key={i}
+                        cx="50"
+                        cy="50"
+                        r="40"
+                        fill="transparent"
+                        stroke={slice.color}
+                        strokeWidth="16"
+                        strokeDasharray={strokeDasharray}
+                        strokeDashoffset={strokeDashoffset}
+                        style={{ transition: "all 0.5s ease" }}
+                      />
+                    );
+                  })}
+                </svg>
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+                  <span style={{ fontSize: "18px", fontWeight: 800, color: "#f8fafc" }}>{total}</span>
+                  <span style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase" }}>Shortlisted</span>
+                </div>
+              </div>
+
+              {/* Legend List */}
+              <div style={{ flex: 1, minWidth: "150px" }}>
+                {expSlices.map((slice, idx) => (
+                  <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px", fontSize: "12px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: slice.color }} />
+                      <span style={{ color: "#cbd5e1", fontWeight: 500 }}>{slice.label}</span>
+                    </div>
+                    <span style={{ fontWeight: 700, color: "#f8fafc" }}>{slice.count} ({slice.percent}%)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Chart 2: Match Score Quality Breakdown */}
+          <div style={{ background: "rgba(30, 41, 59, 0.5)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "14px", padding: "20px" }}>
+            <h3 style={{ fontSize: "14px", fontWeight: 700, color: "#e2e8f0", margin: "0 0 16px 0", display: "flex", alignItems: "center", gap: "8px" }}>
+              <span>🎯 Neural Match Score Tiers</span>
+            </h3>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              {scoreSlices.map((tier, idx) => (
+                <div key={idx}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "4px" }}>
+                    <span style={{ color: "#cbd5e1", fontWeight: 500 }}>{tier.label}</span>
+                    <span style={{ color: tier.color, fontWeight: 700 }}>{tier.count} Candidate(s) ({tier.percent}%)</span>
+                  </div>
+                  <div style={{ width: "100%", height: "8px", background: "rgba(255,255,255,0.08)", borderRadius: "4px", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        width: `${tier.percent}%`,
+                        height: "100%",
+                        background: tier.color,
+                        borderRadius: "4px",
+                        boxShadow: `0 0 8px ${tier.color}`,
+                        transition: "width 0.6s ease"
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Chart 3: Top Skills Breakdown (Horizontal Glowing Progress Bars) */}
+        <div style={{ background: "rgba(30, 41, 59, 0.5)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "14px", padding: "20px", marginBottom: "20px" }}>
+          <h3 style={{ fontSize: "14px", fontWeight: 700, color: "#e2e8f0", margin: "0 0 16px 0", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span>📊 Top Skills & Competencies Breakdown</span>
+          </h3>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "14px" }}>
+            {sortedSkills.map(([skillName, count], idx) => {
+              const skillPercent = Math.round((count / total) * 100);
+              return (
+                <div key={idx} style={{ background: "rgba(15, 23, 42, 0.6)", padding: "12px 14px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "6px" }}>
+                    <span style={{ fontWeight: 700, color: "#38bdf8" }}>{skillName}</span>
+                    <span style={{ color: "#94a3b8", fontSize: "11px" }}>{count} of {total} ({skillPercent}%)</span>
+                  </div>
+                  <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.08)", borderRadius: "3px", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        width: `${skillPercent}%`,
+                        height: "100%",
+                        background: "linear-gradient(90deg, #38bdf8 0%, #34d399 100%)",
+                        borderRadius: "3px",
+                        transition: "width 0.6s ease"
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* AI Synthesis Executive Insights Banner */}
+        <div style={{ background: "linear-gradient(135deg, rgba(56, 189, 248, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "12px", padding: "16px", display: "flex", gap: "14px", alignItems: "flex-start" }}>
+          <div style={{ padding: "6px", borderRadius: "8px", background: "rgba(56, 189, 248, 0.2)", color: "#38bdf8", display: "flex", alignItems: "center" }}>
+            <Sparkles size={20} />
+          </div>
+          <div>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#38bdf8", marginBottom: "2px" }}>
+              🤖 Digital Analytics Executive Synthesis
+            </div>
+            <div style={{ fontSize: "12px", color: "#cbd5e1", lineHeight: 1.5 }}>
+              The shortlisted pool of <strong>{total} candidate(s)</strong> demonstrates exceptional capability with an average neural match score of <strong>{avgScore}/100</strong> and <strong>{avgExp} years</strong> average experience. Dominant tech competencies include <strong>{sortedSkills.slice(0, 3).map(s => s[0]).join(", ")}</strong> with 100% security inspection.
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Action Buttons */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "24px" }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: "9px 24px",
+              borderRadius: "8px",
+              background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
+              color: "#ffffff",
+              fontWeight: 700,
+              fontSize: "13px",
+              border: "none",
+              cursor: "pointer",
+              boxShadow: "0 0 14px rgba(2, 132, 199, 0.4)",
+            }}
+          >
+            Close Digital Analytics
+          </button>
+        </div>
+
       </div>
     </div>
   );

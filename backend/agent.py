@@ -185,7 +185,9 @@ def rank_and_reason_candidates(job_description: str, top_n: int = 50) -> str:
     # We call the core ranking logic from ranker.py
     results = rank_candidates(CANDIDATES, jd_text=job_description)
     ACTIVE_SHORTLIST.clear()
-    ACTIVE_SHORTLIST.extend(results)  # Store ALL ranked candidates for pagination
+    for idx, c in enumerate(results):
+        c["rank"] = idx + 1
+        ACTIVE_SHORTLIST.append(c)
     
     summary_list = []
     for c in ACTIVE_SHORTLIST[:top_n]:
