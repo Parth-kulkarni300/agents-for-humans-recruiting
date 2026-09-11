@@ -396,15 +396,19 @@ def calculate_skill_score(cand, jd_skills=None):
     skill_score = 0.0
     matched_count = 0
     skill_sum = 0.0
-    
+
+    # jd_skills holds Title-Case canonical names (e.g. "Python", "AWS") from SKILLS_MAP;
+    # lowercase them here so they compare correctly against candidate skill names below.
+    jd_skills_lower = {js.lower() for js in jd_skills}
+
     for s in skills:
         name = s.get("name", "").lower()
         dur = s.get("duration_months", 0)
         prof = s.get("proficiency", "beginner")
-        
+
         # Check if the candidate's skill is in the JD's extracted skills
         is_match = False
-        for js in jd_skills:
+        for js in jd_skills_lower:
             # Match if equal, or if one is a substring of the other (e.g. next.js vs nextjs, or python vs python3)
             if name == js or (len(name) > 3 and name in js) or (len(js) > 3 and js in name):
                 is_match = True
@@ -487,14 +491,17 @@ def calculate_history_score(cand, jd_text=""):
 def calculate_availability_multiplier(cand):
     """
     Convert Redrob activity signals into a multiplier reflecting candidate availability.
+    Signals that are simply absent (e.g. candidates ingested from a plain resume PDF,
+    which carries no recruiter-engagement telemetry) are treated as neutral (1.0x),
+    not as the worst possible value — missing data should not read as bad data.
     """
     signals = cand.get("redrob_signals", {})
-    
+
     # 1. Open to work flag
     otw_mult = 1.2 if signals.get("open_to_work_flag", False) else 1.0
-    
-    # 2. Activity Recency
-    active_mult = 0.5
+
+    # 2. Activity Recency — neutral until we actually know the candidate is stale
+    active_mult = 1.0
     last_active_str = signals.get("last_active_date")
     if last_active_str:
         active_date = parse_date(last_active_str)
@@ -506,10 +513,14 @@ def calculate_availability_multiplier(cand):
                 active_mult = 1.0
             elif days_inactive <= 180:
                 active_mult = 0.7
-                
-    # 3. Recruiter Response Rate (RRR)
-    rrr = signals.get("recruiter_response_rate", 0.0)
-    if rrr >= 0.7:
+            else:
+                active_mult = 0.5
+
+    # 3. Recruiter Response Rate (RRR) — neutral when no engagement data exists
+    rrr = signals.get("recruiter_response_rate")
+    if rrr is None:
+        rrr_mult = 1.0
+    elif rrr >= 0.7:
         rrr_mult = 1.2
     elif rrr >= 0.4:
         rrr_mult = 1.0
@@ -517,10 +528,12 @@ def calculate_availability_multiplier(cand):
         rrr_mult = 0.7
     else:
         rrr_mult = 0.4
-        
-    # 4. Notice Period
-    notice = signals.get("notice_period_days", 90)
-    if notice <= 30:
+
+    # 4. Notice Period — neutral when unknown, rather than assuming a long notice period
+    notice = signals.get("notice_period_days")
+    if notice is None:
+        notice_mult = 1.0
+    elif notice <= 30:
         notice_mult = 1.2
     elif notice <= 60:
         notice_mult = 1.0
@@ -528,7 +541,7 @@ def calculate_availability_multiplier(cand):
         notice_mult = 0.8
     else:
         notice_mult = 0.5
-        
+
     return otw_mult * active_mult * rrr_mult * notice_mult
 
 def generate_reasoning(cand, rank, is_consulting=False):
@@ -562,7 +575,8 @@ def generate_reasoning(cand, rank, is_consulting=False):
     matching_skills = [s["name"] for s in cand.get("skills", []) if s["name"].lower() in vdb_skills]
     
     skills_str = f"with depth in {', '.join(matching_skills[:2])}" if matching_skills else "with strong backend skills"
-    notice_str = f"{signals.get('notice_period_days')}d notice"
+    notice_days = signals.get('notice_period_days')
+    notice_str = f"{notice_days}d notice" if notice_days is not None else "notice period unknown"
     
     # Build education/github highlight
     highlights = []
@@ -573,15 +587,17 @@ def generate_reasoning(cand, rank, is_consulting=False):
     highlights_str = f" ({', '.join(highlights)})" if highlights else ""
     
     consulting_note = " (Note: Entire background is in IT services, requiring vetting for product culture fit)" if is_consulting else ""
+    rrr = signals.get('recruiter_response_rate')
+    response_str = f"{int(rrr * 100)}% response rate" if rrr is not None else "response rate unavailable"
     if rank <= 10:
         return (
             f"Exceptional {title} with {exp:.1f} years of experience{highlights_str}. Proved production impact at product companies; "
-            f"expert {skills_str} matching the 'shipper' profile. Strong engagement signals ({notice_str}, {int(signals.get('recruiter_response_rate', 0)*100)}% response rate).{consulting_note}"
+            f"expert {skills_str} matching the 'shipper' profile. Strong engagement signals ({notice_str}, {response_str}).{consulting_note}"
         )
     elif rank <= 50:
         concern = ""
-        if signals.get('notice_period_days', 90) > 60:
-            concern = f" Notice period is {signals.get('notice_period_days')} days, but technical depth outweighs notice lag."
+        if notice_days is not None and notice_days > 60:
+            concern = f" Notice period is {notice_days} days, but technical depth outweighs notice lag."
         elif not profile.get('location', '').lower() in ['pune', 'noida', 'delhi', 'gurgaon']:
             concern = " Relocation to Pune/Noida offices required, but candidate is willing to relocate."
             
