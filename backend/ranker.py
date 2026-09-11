@@ -317,22 +317,37 @@ def calculate_title_score(cand, jd_title_keywords=None):
     # Dynamic Title Matching based on JD keywords
     cand_words = set(re.findall(r"\b[a-z0-9_-]+\b", current_title))
     headline_words = set(re.findall(r"\b[a-z0-9_-]+\b", headline))
-    
-    # Count matching words
-    matches = cand_words.intersection(jd_title_keywords)
-    headline_matches = headline_words.intersection(jd_title_keywords)
-    
-    if len(matches) >= 2:
-        return 1.0  # high match (e.g. matches "AI" and "Engineer")
-    elif len(matches) == 1:
-        return 0.7  # moderate match
-    elif len(headline_matches) >= 1:
-        return 0.5  # headline match
+
+    # Words like "senior"/"engineer"/"years"/"remote" appear in almost every tech
+    # JD and every tech title, so two of THEM overlapping isn't a real title match —
+    # e.g. "Senior Frontend Engineer" would otherwise score identically to "Senior
+    # Backend Engineer" against a JD that only actually specifies "backend". Only
+    # count overlap on words that actually discriminate between roles.
+    _TITLE_GENERIC_WORDS = {
+        "senior", "junior", "lead", "staff", "principal", "engineer", "developer",
+        "years", "year", "experience", "remote", "hybrid", "onsite", "on-site",
+        "required", "requirements", "role", "position", "team", "join",
+    }
+
+    # Count matching words, weighting discriminating (non-generic) overlap highest
+    all_matches = cand_words.intersection(jd_title_keywords)
+    all_headline_matches = headline_words.intersection(jd_title_keywords)
+    specific_matches = all_matches - _TITLE_GENERIC_WORDS
+    specific_headline_matches = all_headline_matches - _TITLE_GENERIC_WORDS
+
+    if len(specific_matches) >= 1:
+        return 1.0  # matched a discriminating role word (e.g. "backend", "ml")
+    elif len(all_matches) >= 2:
+        return 0.6  # only generic words overlapped (e.g. "senior" + "engineer")
+    elif len(specific_headline_matches) >= 1:
+        return 0.5  # discriminating word matched in headline only
+    elif len(all_headline_matches) >= 1:
+        return 0.4  # generic overlap in headline only
     else:
         # Check if the title is adjacent (has developer, engineer, scientist, coder)
         adjacent_keywords = {"engineer", "developer", "architect", "programmer", "scientist", "specialist"}
         if cand_words.intersection(adjacent_keywords):
-            return 0.4
+            return 0.3
         return 0.2  # low match
 
 def calculate_skill_score(cand, jd_skills=None):
@@ -542,7 +557,13 @@ def calculate_availability_multiplier(cand):
     else:
         notice_mult = 0.5
 
-    return otw_mult * active_mult * rrr_mult * notice_mult
+    # The four sub-multipliers can each reach 1.2x, so their raw product can
+    # approach ~2.07x — enough to push almost any well-fit, well-engaged candidate
+    # past the 1.0 score ceiling and flatten ranking entirely. Clamp availability to
+    # a modest tiebreaker band so it nudges rank among similar-fit candidates
+    # instead of dominating (or, at the low end, over-suppressing) raw fit.
+    raw_mult = otw_mult * active_mult * rrr_mult * notice_mult
+    return max(0.75, min(1.15, raw_mult))
 
 def generate_reasoning(cand, rank, is_consulting=False):
     """
@@ -745,8 +766,13 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
     elif completeness >= 50:
         completeness_score = 0.02
 
-    # Calculate base score with signal bonuses
-    signal_bonus = edu_score + github_score + assess_score + completeness_score + (career_s * 0.10)
+    # Calculate base score with signal bonuses. raw_fit below is already a 0-1 fit
+    # score (its weights sum to 1.0), so a large additive bonus on top of it
+    # guarantees ceiling clipping for any "good, not even perfect" match — the
+    # uncapped raw value here could reach ~0.68, which was enough on its own to
+    # push most realistic candidates to the 1.0 ceiling and erase differentiation.
+    # Capped tighter (0.12) so it acts as a genuine tiebreaker, not a dominant term.
+    signal_bonus = min(0.12, edu_score + github_score + assess_score + completeness_score + (career_s * 0.10))
     
     if not is_default and (jd_skills or jd_title_keywords):
         # 50% Skill coverage, 30% Title fit, 20% BGE Neural Semantic fit
@@ -788,7 +814,7 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
             "title_fit": round(min(1.0, title_s) * 100),
             "skill_coverage": round(min(1.0, skill_s) * 100),
             "semantic_fit": round(min(1.0, nlp_s) * 100),
-            "signal_bonus": round(min(0.25, signal_bonus) * 100)
+            "signal_bonus": round(signal_bonus * 100)
         },
         "candidate_raw": cand  # keep reference for detail display
     }

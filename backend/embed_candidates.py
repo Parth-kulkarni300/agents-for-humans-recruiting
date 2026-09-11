@@ -17,11 +17,16 @@ def main():
     args = parser.parse_args()
 
     # Setup paths
+    backend_dir = Path(__file__).parent
     if args.candidates:
         candidates_file = Path(args.candidates)
     else:
-        candidates_file = Path("../[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl")
-    output_embeddings_file = Path("candidate_embeddings.npy")
+        # Prefer a real candidates.jsonl if one's been placed alongside this script,
+        # otherwise fall back to the small sample dataset bundled with the repo.
+        candidates_file = backend_dir / "candidates.jsonl"
+        if not candidates_file.exists():
+            candidates_file = backend_dir / "sample_candidates.jsonl"
+    output_embeddings_file = backend_dir / "candidate_embeddings.npy"
     
     if not candidates_file.exists():
         print(f"Error: Candidate database not found at {candidates_file}")
@@ -85,7 +90,7 @@ def main():
     np.save(output_embeddings_file, embeddings_matrix)
     
     # Also save the candidate IDs list to make sure index maps correctly
-    output_ids_file = Path("candidate_ids.json")
+    output_ids_file = backend_dir / "candidate_ids.json"
     print(f"Saving candidate ID mappings to {output_ids_file}...")
     with open(output_ids_file, "w", encoding="utf-8") as f:
         json.dump(candidates, f)

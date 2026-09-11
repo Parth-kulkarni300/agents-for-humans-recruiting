@@ -44,9 +44,11 @@ def load_candidates_file(file_path: str):
     path = Path(file_path)
     if not path.exists():
         logger.warning(f"Candidates file not found at: {file_path}")
-        # Try parent directory fallback
-        fallback_path = Path("D:/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl")
+        # Fall back to the small sample dataset shipped with the repo, so a
+        # fresh clone has something to demo without needing a private dataset.
+        fallback_path = Path(__file__).parent / "sample_candidates.jsonl"
         if fallback_path.exists():
+            logger.info(f"Falling back to bundled sample dataset at: {fallback_path}")
             path = fallback_path
         else:
             logger.error("No candidates database file found. Please check candidates.jsonl location.")

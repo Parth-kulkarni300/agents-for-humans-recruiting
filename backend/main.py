@@ -12,7 +12,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import pandas as pd
-from backend.ranker import EMBEDDINGS_LOADED, EMBEDDINGS_COUNT
 from pypdf import PdfReader
 import zipfile
 import xml.etree.ElementTree as ET
@@ -30,6 +29,59 @@ from backend.agent import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("recruiter-backend")
 
+def compute_and_persist_embeddings(candidates: list) -> str:
+    """
+    Computes BGE embeddings for the given candidate pool and updates ranker's
+    in-memory embedding index, persisting to disk so a restart doesn't lose them.
+    Shared by both server startup (whatever CANDIDATES_PATH/sample dataset loads)
+    and /upload_candidates (a jury's own uploaded pool), so semantic matching works
+    out of the box either way instead of relying on a pre-shipped embeddings file.
+    """
+    from backend.ranker import get_sentence_model
+    import backend.ranker as ranker_mod
+
+    if not candidates:
+        return "No candidates to embed."
+
+    try:
+        model = get_sentence_model()
+        if model is None:
+            return "Embeddings skipped (model unavailable) — rule-based ranking active"
+
+        texts = []
+        ids = []
+        for c in candidates:
+            profile = c.get("profile", {})
+            title = profile.get("current_title", "")
+            headline = profile.get("headline", "")
+            summary = profile.get("summary", "")
+            texts.append(f"Title: {title}. Headline: {headline}. Summary: {summary}")
+            ids.append(c["candidate_id"])
+
+        batch_size = 512
+        all_embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = model.encode(texts[i:i + batch_size], normalize_embeddings=True, show_progress_bar=False)
+            all_embeddings.append(batch)
+
+        embeddings_matrix = np.vstack(all_embeddings)
+
+        ranker_mod.CANDIDATE_EMBEDDINGS = embeddings_matrix
+        ranker_mod.CANDIDATE_ID_TO_INDEX = {cid: idx for idx, cid in enumerate(ids)}
+        ranker_mod.EMBEDDINGS_LOADED = True
+        ranker_mod.EMBEDDINGS_COUNT = len(ids)
+
+        _backend_dir = Path(__file__).parent
+        np.save(_backend_dir / "candidate_embeddings.npy", embeddings_matrix)
+        with open(_backend_dir / "candidate_ids.json", "w") as f:
+            json.dump(ids, f)
+
+        logger.info(f"Computed and saved {len(ids)} embeddings.")
+        return f"Computed {len(ids)} neural embeddings"
+    except Exception as emb_err:
+        logger.error(f"Embedding computation failed: {emb_err}")
+        return f"Embeddings failed ({emb_err}) — rule-based ranking active"
+
 app = FastAPI(title="RecruitShield AI Backend", version="1.0.0")
 
 # Enable CORS for frontend local development
@@ -45,23 +97,34 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     job_description: Optional[str] = None
+    aws_access_key: Optional[str] = None
+    aws_secret_key: Optional[str] = None
+    aws_region: Optional[str] = "us-east-2"
 
-# Initialize candidate database on startup
-CANDIDATE_DB_PATH = os.environ.get("CANDIDATES_PATH", "D:/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl")
+# Initialize candidate database on startup.
+# CANDIDATES_PATH lets a deployer point at a private/production dataset; if unset
+# (or the file isn't found) load_candidates_file() falls back to the small sample
+# dataset bundled at backend/sample_candidates.jsonl so a fresh clone works out of the box.
+CANDIDATE_DB_PATH = os.environ.get("CANDIDATES_PATH", str(Path(__file__).parent / "candidates.jsonl"))
 
 @app.on_event("startup")
 def startup_event():
     logger.info("Backend starting. Attempting to load candidate database...")
-    load_candidates_file(CANDIDATE_DB_PATH)
+    if load_candidates_file(CANDIDATE_DB_PATH) and agent_mod.CANDIDATES:
+        logger.info("Computing neural embeddings for the loaded candidate pool...")
+        compute_and_persist_embeddings(agent_mod.CANDIDATES)
 
 @app.get("/health")
 def health_check():
+    import backend.ranker as ranker_mod
     return {
         "status": "healthy",
         "database_loaded": len(agent_mod.CANDIDATES) > 0,
         "total_candidates": len(agent_mod.CANDIDATES),
-        "embeddings_loaded": EMBEDDINGS_LOADED,
-        "embeddings_count": EMBEDDINGS_COUNT
+        # Read live off the module rather than the import-time snapshot below,
+        # since embeddings are (re)computed after startup (see compute_and_persist_embeddings).
+        "embeddings_loaded": ranker_mod.EMBEDDINGS_LOADED,
+        "embeddings_count": ranker_mod.EMBEDDINGS_COUNT
     }
 
 @app.post("/load")
@@ -141,10 +204,16 @@ def run_agent_chat(req: ChatRequest):
     if not agent_mod.CANDIDATES:
         raise HTTPException(status_code=400, detail="No candidates loaded. Please upload a candidates file first.")
     
-    # Try Bedrock Agent first
+    # Try Bedrock Agent first — pass through any credentials the caller supplied
+    # (e.g. entered in the UI's Bedrock Config panel) so the live Strands+Bedrock
+    # path is actually reachable instead of always falling through to the local mode.
     try:
         logger.info("Running Strands Bedrock Agent...")
-        agent = get_recruiter_agent()
+        agent = get_recruiter_agent(
+            aws_access_key=req.aws_access_key,
+            aws_secret_key=req.aws_secret_key,
+            aws_region=req.aws_region or "us-east-2"
+        )
         result = agent(req.message)
         
         response_text = ""
@@ -331,6 +400,7 @@ def get_shortlist(page: int = 1, limit: int = 50):
             "current_title": c["current_title"],
             "current_company": c["current_company"],
             "score": round(c["score"], 4),
+            "score_breakdown": c.get("score_breakdown"),
             "reasoning": c["reasoning"],
             "skills": skills_list[:10],
             "education": c["candidate_raw"].get("education", []),
@@ -433,15 +503,15 @@ def get_honeypots():
 @app.get("/export")
 def export_shortlist_excel():
     """Generates the final submission.xlsx file on the fly and downloads it."""
-    global ACTIVE_SHORTLIST
-    if not ACTIVE_SHORTLIST:
+    import backend.agent as agent_mod
+    if not agent_mod.ACTIVE_SHORTLIST:
         raise HTTPException(status_code=400, detail="Shortlist is empty. Please rank candidates first.")
-        
+
     logger.info("Exporting shortlist to Excel...")
-    
+
     # We create the exact format needed for the hackathon portal
     export_data = []
-    for c in ACTIVE_SHORTLIST:
+    for c in agent_mod.ACTIVE_SHORTLIST:
         export_data.append({
             "candidate_id": c["candidate_id"],
             "rank": c["rank"],
@@ -511,17 +581,26 @@ def parse_single_pdf_candidate(pdf_bytes: bytes, filename: str, idx: int) -> dic
             years_exp = max(0.0, float(max(int_years) - min(int_years)))
             
     # 6. Current Title & Company
+    # PDF text extraction can leave runs of internal whitespace/newlines (e.g. from
+    # justified or multi-column layouts); normalize before regex-matching so extracted
+    # fields don't carry that whitespace through into the UI.
+    norm_text = re.sub(r'\s+', ' ', raw_text).strip()
+
     current_title = "Software Engineer"
-    title_match = re.search(r'(?:Senior|Lead|Junior|Staff|Principal)?\s*(?:Software|Data|Full Stack|Backend|Frontend|DevOps|ML|AI|Cloud|Product|Systems)\s*(?:Engineer|Developer|Scientist|Architect|Manager)', raw_text, re.IGNORECASE)
+    title_match = re.search(r'(?:Senior|Lead|Junior|Staff|Principal)?\s*(?:Software|Data|Full Stack|Backend|Frontend|DevOps|ML|AI|Cloud|Product|Systems)\s*(?:Engineer|Developer|Scientist|Architect|Manager)', norm_text, re.IGNORECASE)
     if title_match:
-        current_title = title_match.group(0).title()
-        
-    current_company = "Tech Services"
+        current_title = re.sub(r'\s+', ' ', title_match.group(0)).strip().title()
+
     from backend.ranker import FOUNDING_YEARS
+    current_company = None
     for comp in FOUNDING_YEARS.keys():
-        if re.search(r'\b' + re.escape(comp) + r'\b', raw_text, re.IGNORECASE):
+        if re.search(r'\b' + re.escape(comp) + r'\b', norm_text, re.IGNORECASE):
             current_company = comp
             break
+    if not current_company:
+        # Fallback heuristic: "<Title> at <Company>" or "<Company> (dates)" mentions
+        at_match = re.search(r'\bat\s+([A-Z][A-Za-z0-9&.,\'-]{1,40}(?:\s+[A-Z][A-Za-z0-9&.,\'-]{1,40}){0,2})', norm_text)
+        current_company = at_match.group(1).strip().rstrip('.,') if at_match else "Not specified"
             
     headline = f"{current_title} with {years_exp:.1f} yrs experience"
     cand_id = f"C-PDF-{idx:03d}"
@@ -567,8 +646,6 @@ async def upload_candidates_batch(
     After loading, auto-recomputes neural embeddings for the new candidates.
     """
     import backend.agent as agent_mod
-    from backend.ranker import get_sentence_model
-    import backend.ranker as ranker_mod
 
     upload_list = []
     if files:
@@ -636,48 +713,8 @@ async def upload_candidates_batch(
         
         # Auto-recompute neural embeddings for the new candidates
         logger.info("Auto-computing neural embeddings for uploaded candidates...")
-        try:
-            model = get_sentence_model()
-            if model is not None:
-                texts = []
-                ids = []
-                for c in agent_mod.CANDIDATES:
-                    profile = c.get("profile", {})
-                    title = profile.get("current_title", "")
-                    headline = profile.get("headline", "")
-                    summary = profile.get("summary", "")
-                    texts.append(f"Title: {title}. Headline: {headline}. Summary: {summary}")
-                    ids.append(c["candidate_id"])
-                
-                batch_size = 512
-                all_embeddings = []
-                for i in range(0, len(texts), batch_size):
-                    batch = model.encode(texts[i:i+batch_size], normalize_embeddings=True, show_progress_bar=False)
-                    all_embeddings.append(batch)
-                
-                embeddings_matrix = np.vstack(all_embeddings)
-                
-                # Update ranker globals in-memory
-                ranker_mod.CANDIDATE_EMBEDDINGS = embeddings_matrix
-                ranker_mod.CANDIDATE_ID_TO_INDEX = {cid: idx for idx, cid in enumerate(ids)}
-                ranker_mod.EMBEDDINGS_LOADED = True
-                ranker_mod.EMBEDDINGS_COUNT = len(ids)
-                
-                # Persist to disk so reload survives restart
-                _backend_dir = Path(__file__).parent
-                np.save(_backend_dir / "candidate_embeddings.npy", embeddings_matrix)
-                import json as _json
-                with open(_backend_dir / "candidate_ids.json", "w") as f:
-                    _json.dump(ids, f)
-                
-                logger.info(f"Successfully computed and saved {len(ids)} embeddings for uploaded candidates.")
-                embeddings_status = f"Recomputed {len(ids)} neural embeddings"
-            else:
-                embeddings_status = "Embeddings skipped (model unavailable) — rule-based ranking active"
-        except Exception as emb_err:
-            logger.error(f"Embedding computation failed: {emb_err}")
-            embeddings_status = f"Embeddings failed ({emb_err}) — rule-based ranking active"
-        
+        embeddings_status = compute_and_persist_embeddings(agent_mod.CANDIDATES)
+
         return {
             "status": "success",
             "ingested_count": len(new_candidates),
