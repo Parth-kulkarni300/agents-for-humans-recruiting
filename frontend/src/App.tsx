@@ -3373,7 +3373,7 @@ function AIChatbotWidget() {
       const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: query, ...getAwsCredsPayload() }),
+        body: JSON.stringify({ message: query, job_description: jd, ...getAwsCredsPayload() }),
       });
       const data = await res.json();
       const aiResponse = res.ok
