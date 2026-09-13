@@ -58,9 +58,19 @@
 .fsb-threat-dot{width:7px;height:7px;border-radius:50%;background:#36d9a4;box-shadow:0 0 8px #36d9a4;flex-shrink:0}
 /* ─── end Smart Filter Sidebar ─────────────────────────── */
 
+.security-strip{max-width:1120px;margin:auto;padding:20px 30px 95px}
+.security-header{max-width:640px;margin:0 0 40px}
+.security-header h2{margin:12px 0 0;font-size:clamp(26px,3.2vw,36px);letter-spacing:-.03em;line-height:1.2;color:#e7edf6}
+.security-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.security-card{padding:22px;border:1px solid #202e3f;border-radius:10px;background:#0b1119}
+.security-card:hover{border-color:#1e7280}
+.security-card h3{margin:16px 0 8px;font-size:15px;color:#e7edf6}
+.security-card p{margin:0;color:#7e8c9f;font-size:14px;line-height:1.65}
+@media(max-width:850px){.security-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.security-strip{padding:10px 25px 65px}.security-grid{grid-template-columns:1fr}}
 .landing-shell{position:relative}
 .landing-molten-bg{position:fixed;inset:0;z-index:0;pointer-events:none}
-.landing-shell>.site-header,.landing-shell>.hero-shell,.landing-shell>.logo-ribbon,.landing-shell>.feature-strip{position:relative;z-index:1}
+.landing-shell>.site-header,.landing-shell>.hero-shell,.landing-shell>.logo-ribbon,.landing-shell>.feature-strip,.landing-shell>.security-strip{position:relative;z-index:1}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* .hero-copy is a CSS grid item; by default grid items have min-width:auto,
    which lets a child's intrinsic content width force the whole grid track

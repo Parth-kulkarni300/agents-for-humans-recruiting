@@ -1364,16 +1364,6 @@ function Landing({ onLaunch, onOpenHowItWorks }: { onLaunch: () => void; onOpenH
           </div>
         </div>
       </section>
-      <div className="logo-ribbon">
-        <span className="micro-label">BUILT FOR TEAMS AT</span>
-        <b>northstar</b>
-        <b>vertex</b>
-        <b>orbital</b>
-        <b>momentum</b>
-        <b>
-          signal<span className="text-cyan-300">/</span>works
-        </b>
-      </div>
       <section id="signal" className="feature-strip">
         <div>
           <div className="feature-icon">
@@ -1403,6 +1393,57 @@ function Landing({ onLaunch, onOpenHowItWorks }: { onLaunch: () => void; onOpenH
           <p>
             Move from thousands of profiles to a confident shortlist in minutes.
           </p>
+        </div>
+      </section>
+      <section id="security" className="security-strip">
+        <div className="security-header">
+          <span className="micro-label text-cyan-300">SECURITY &amp; TRUST</span>
+          <h2>
+            Built with the same rigor as the hiring decisions it powers.
+          </h2>
+        </div>
+        <div className="security-grid">
+          <div className="security-card">
+            <div className="feature-icon">
+              <ShieldCheck size={18} />
+            </div>
+            <h3>5-point verification firewall</h3>
+            <p>
+              Every shortlisted candidate is run through automated identity
+              and consistency checks before it ever reaches your pipeline.
+            </p>
+          </div>
+          <div className="security-card">
+            <div className="feature-icon">
+              <AlertTriangle size={18} />
+            </div>
+            <h3>Honeypot &amp; anomaly detection</h3>
+            <p>
+              Fabricated profiles and prompt-injection attempts are flagged
+              and quarantined automatically, never silently ranked.
+            </p>
+          </div>
+          <div className="security-card">
+            <div className="feature-icon">
+              <LockKeyhole size={18} />
+            </div>
+            <h3>Local-only credentials</h3>
+            <p>
+              AWS Bedrock keys are stored in your browser and sent straight
+              to your own backend on each request — never persisted
+              server-side.
+            </p>
+          </div>
+          <div className="security-card">
+            <div className="feature-icon">
+              <Database size={18} />
+            </div>
+            <h3>You own the data</h3>
+            <p>
+              Upload, replace, or clear your candidate pool at any time.
+              Nothing is retained beyond your active session.
+            </p>
+          </div>
         </div>
       </section>
     </main>
