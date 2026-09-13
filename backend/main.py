@@ -84,11 +84,14 @@ def compute_and_persist_embeddings(candidates: list) -> str:
 
 app = FastAPI(title="RecruitShield AI Backend", version="1.0.0")
 
-# Enable CORS for frontend local development
+# Enable CORS for frontend and deployment environments
+raw_origins = os.environ.get("ALLOWED_ORIGINS", "*")
+allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()] if raw_origins != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","),
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=True if allowed_origins != ["*"] else False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
