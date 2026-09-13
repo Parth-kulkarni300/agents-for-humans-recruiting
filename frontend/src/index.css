@@ -72,7 +72,7 @@
 .logo-glitch.glitch::after,.logo-glitch.glitch::before{background-color:#080a0f;color:#e7edf6}
 .landing-shell{position:relative}
 .landing-molten-bg{position:fixed;inset:0;z-index:0;pointer-events:none}
-.landing-shell>.site-header,.landing-shell>.hero-shell,.landing-shell>.logo-ribbon,.landing-shell>.feature-strip,.landing-shell>.security-strip{position:relative;z-index:1}
+.landing-shell>*:not(.landing-molten-bg){position:relative;z-index:1}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* .hero-copy is a CSS grid item; by default grid items have min-width:auto,
    which lets a child's intrinsic content width force the whole grid track
