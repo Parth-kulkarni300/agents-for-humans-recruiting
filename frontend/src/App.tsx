@@ -413,6 +413,64 @@ function StatusDot() {
   return <span className="status-dot" aria-label="System online" />;
 }
 
+function Toast({
+  toast,
+  onDismiss,
+}: {
+  toast: { message: string; type: "success" | "error" | "info" } | null;
+  onDismiss: () => void;
+}) {
+  if (!toast) return null;
+
+  const palette = {
+    success: { border: "rgba(16, 185, 129, 0.4)", bg: "#0d1f1a", text: "#34d399" },
+    error: { border: "rgba(239, 68, 68, 0.4)", bg: "#1f1010", text: "#f87171" },
+    info: { border: "rgba(56, 189, 248, 0.4)", bg: "#0d141e", text: "#38bdf8" },
+  }[toast.type];
+
+  return (
+    <div
+      role="status"
+      style={{
+        position: "fixed",
+        top: "20px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 10000,
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        maxWidth: "min(90vw, 480px)",
+        padding: "12px 16px",
+        borderRadius: "10px",
+        background: palette.bg,
+        border: `1px solid ${palette.border}`,
+        boxShadow: "0 12px 32px rgba(0, 0, 0, 0.5)",
+        color: "#e7edf6",
+        fontSize: "13px",
+        lineHeight: 1.4,
+      }}
+    >
+      <span style={{ color: palette.text, flex: 1 }}>{toast.message}</span>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        style={{
+          background: "none",
+          border: "none",
+          color: "#64748b",
+          cursor: "pointer",
+          padding: 0,
+          display: "grid",
+          placeItems: "center",
+        }}
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
 export default function RecruitShieldApp() {
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -448,6 +506,17 @@ export default function RecruitShieldApp() {
   const [activeTab, setActiveTab] = useState<'eligible' | 'unaligned' | 'all' | 'shortlisted'>('eligible');
   const [isHowItWorksOpen, setIsHowItWorksOpen] = useState(false);
   const [isBedrockConfigOpen, setIsBedrockConfigOpen] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+
+  const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const expBucketMatch = (exp: number) => {
     if (expBuckets.length === 0) return true;
@@ -759,7 +828,7 @@ export default function RecruitShieldApp() {
       : candidates.filter(c => (c as any).isShortlisted);
 
     if (listToUse.length === 0) {
-      alert("⚠️ No candidates in shortlist to export. Please star candidates first!");
+      showToast("No candidates in shortlist to export. Please star candidates first!", "error");
       return;
     }
 
@@ -912,15 +981,15 @@ export default function RecruitShieldApp() {
       
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(`Agent Execution Failed: ${err.detail || res.statusText}`);
+        showToast(`Agent execution failed: ${err.detail || res.statusText}`, "error");
         return;
       }
-      
+
       await fetchShortlist(1);
       setScreen("pipeline");
     } catch (e) {
       console.error(e);
-      alert("Network Error: Could not reach the backend agent.");
+      showToast("Network error: could not reach the backend agent.", "error");
     } finally {
       setLoading(false);
     }
@@ -956,6 +1025,7 @@ export default function RecruitShieldApp() {
           onClose={() => setIsHowItWorksOpen(false)}
           onLaunchWorkspace={() => setScreen("ingest")}
         />
+        <Toast toast={toast} onDismiss={() => setToast(null)} />
       </>
     );
   if (screen === "ingest")
@@ -974,10 +1044,11 @@ export default function RecruitShieldApp() {
           onAnalyze={analyze}
           onCandidatesUploaded={(count: number) => {
             fetchShortlist(1);
-            alert(`✅ Loaded ${count.toLocaleString()} candidates. Pool replaced — ready to analyze!`);
+            showToast(`Loaded ${count.toLocaleString()} candidates. Pool replaced — ready to analyze!`, "success");
           }}
           onOpenAgentConsole={() => setShowAgentConsoleModal(true)}
           onOpenBedrockConfig={() => setIsBedrockConfigOpen(true)}
+          showToast={showToast}
         />
         <AgentConsoleModal
           isOpen={showAgentConsoleModal}
@@ -992,6 +1063,7 @@ export default function RecruitShieldApp() {
           isOpen={isBedrockConfigOpen}
           onClose={() => setIsBedrockConfigOpen(false)}
         />
+        <Toast toast={toast} onDismiss={() => setToast(null)} />
       </>
     );
   if (screen === "deepdive")
@@ -1003,6 +1075,7 @@ export default function RecruitShieldApp() {
           onClose={() => setIsHowItWorksOpen(false)}
           onLaunchWorkspace={() => setScreen("pipeline")}
         />
+        <Toast toast={toast} onDismiss={() => setToast(null)} />
       </>
     );
   const resetAllFilters = () => {
@@ -1051,6 +1124,7 @@ export default function RecruitShieldApp() {
           setSelected(c);
           setScreen("deepdive");
         }}
+        onOpenBreakdown={(c) => setBreakdownCandidate(c)}
         onOpenHoneypots={fetchHoneypots}
         onOpenAgentConsole={() => setShowAgentConsoleModal(true)}
         onOpenBedrockConfig={() => setIsBedrockConfigOpen(true)}
@@ -1083,6 +1157,7 @@ export default function RecruitShieldApp() {
         isOpen={isBedrockConfigOpen}
         onClose={() => setIsBedrockConfigOpen(false)}
       />
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
       <AIChatbotWidget />
     </>
   );
@@ -1326,6 +1401,7 @@ function Ingest({
   onCandidatesUploaded,
   onOpenAgentConsole,
   onOpenBedrockConfig,
+  showToast,
 }: {
   files: string[];
   setFiles: (x: string[]) => void;
@@ -1340,6 +1416,7 @@ function Ingest({
   onCandidatesUploaded: (count: number) => void;
   onOpenAgentConsole?: () => void;
   onOpenBedrockConfig?: () => void;
+  showToast: (message: string, type?: "success" | "error" | "info") => void;
 }) {
   const [isListening, setIsListening] = useState(false);
 
@@ -1348,7 +1425,7 @@ function Ingest({
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert("Voice Dictation: Browser speech recognition is not supported on this browser. Please use Google Chrome, Microsoft Edge, or Brave.");
+      showToast("Voice dictation isn't supported in this browser. Please use Google Chrome, Microsoft Edge, or Brave.", "error");
       return;
     }
 
@@ -1688,6 +1765,7 @@ function Pipeline({
   onResetFilters,
   onBack,
   onSelect,
+  onOpenBreakdown,
   onOpenHoneypots,
   onOpenAgentConsole,
   onOpenBedrockConfig,
@@ -1726,6 +1804,7 @@ function Pipeline({
   onResetFilters: () => void;
   onBack: () => void;
   onSelect: (c: Candidate) => void;
+  onOpenBreakdown: (c: Candidate) => void;
   onOpenHoneypots: () => void;
   onOpenAgentConsole?: () => void;
   onOpenBedrockConfig?: () => void;
@@ -2225,7 +2304,15 @@ function Pipeline({
                     <MapPin size={14} />
                     {c.location}
                   </span>
-                  <span className="match-cell" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span
+                    className="match-cell"
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenBreakdown(c);
+                    }}
+                    title="View score breakdown"
+                  >
                     <b>{c.score}</b>
                     <span className="score-bar">
                       <i style={{ width: `${c.score}%` }} />
@@ -2747,13 +2834,13 @@ function ScoreBreakdownModal({
         >
           <strong style={{ color: "#38bdf8" }}>Weighted Match Formula:</strong>
           <br />
-          <code>Score = (Skills × 40%) + (Title × 30%) + (BGE Vector × 20%) + Signal Bonus (+10%)</code>
+          <code>Score = (Skills × 50%) + (Title × 30%) + (BGE Vector × 20%) + Signal Bonus (up to +4%)</code>
         </div>
 
         {/* 4 Dimension Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "18px" }}>
           <div style={{ padding: "12px", borderRadius: "8px", background: "rgba(255, 255, 255, 0.03)", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
-            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700 }}>🛠️ Skill Coverage (40%)</div>
+            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700 }}>🛠️ Skill Coverage (50%)</div>
             <div style={{ fontSize: "20px", fontWeight: 800, color: "#f8fafc", marginTop: "2px" }}>{sb.skill_coverage}%</div>
             <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>Direct skill stack overlap</div>
           </div>
@@ -2771,7 +2858,7 @@ function ScoreBreakdownModal({
           </div>
 
           <div style={{ padding: "12px", borderRadius: "8px", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.25)" }}>
-            <div style={{ fontSize: "11px", color: "#34d399", fontWeight: 700 }}>🎓 Signal Bonus (+10%)</div>
+            <div style={{ fontSize: "11px", color: "#34d399", fontWeight: 700 }}>🎓 Signal Bonus (up to +4%)</div>
             <div style={{ fontSize: "20px", fontWeight: 800, color: "#34d399", marginTop: "2px" }}>+{sb.signal_bonus}%</div>
             <div style={{ fontSize: "11px", color: "#34d399", marginTop: "2px" }}>Verified stability & non-anomalous bonus</div>
           </div>

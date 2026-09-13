@@ -438,7 +438,12 @@ def calculate_skill_score(cand, jd_skills=None):
             
     if len(jd_skills) > 0:
         coverage = matched_count / len(jd_skills)
-        skill_score = (skill_sum / len(jd_skills)) + 0.4 * coverage
+        # skill_sum alone can exceed len(jd_skills) when matched skills carry high
+        # proficiency/duration multipliers (up to 1.44 each), so this was able to
+        # reach ~1.84 for a candidate expert in just the couple of required skills —
+        # well past what "full requirement coverage" should mean. Clamped to 1.0 so
+        # skill fit stops dominating the overall score once requirements are fully met.
+        skill_score = min(1.0, (skill_sum / len(jd_skills)) + 0.4 * coverage)
     else:
         skill_score = 0.0
         
@@ -559,11 +564,15 @@ def calculate_availability_multiplier(cand):
 
     # The four sub-multipliers can each reach 1.2x, so their raw product can
     # approach ~2.07x — enough to push almost any well-fit, well-engaged candidate
-    # past the 1.0 score ceiling and flatten ranking entirely. Clamp availability to
-    # a modest tiebreaker band so it nudges rank among similar-fit candidates
-    # instead of dominating (or, at the low end, over-suppressing) raw fit.
+    # past the 1.0 score ceiling and flatten ranking entirely. raw_fit is already a
+    # 0-1 fit score by construction (its weights sum to 1.0), so it alone can reach
+    # ~0.9-1.0 for a strong-but-imperfect candidate — any multiplier above 1.0x
+    # guarantees clipping for those candidates too. Engagement should mainly act as
+    # a downside risk signal (deprioritizing hard-to-reach candidates), not a way
+    # to inflate an already-strong fit score, so the upper bound is capped at 1.0x
+    # (no boost) while poor engagement can still discount down to 0.75x.
     raw_mult = otw_mult * active_mult * rrr_mult * notice_mult
-    return max(0.75, min(1.15, raw_mult))
+    return max(0.75, min(1.0, raw_mult))
 
 def generate_reasoning(cand, rank, is_consulting=False):
     """
@@ -771,8 +780,9 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
     # guarantees ceiling clipping for any "good, not even perfect" match — the
     # uncapped raw value here could reach ~0.68, which was enough on its own to
     # push most realistic candidates to the 1.0 ceiling and erase differentiation.
-    # Capped tighter (0.12) so it acts as a genuine tiebreaker, not a dominant term.
-    signal_bonus = min(0.12, edu_score + github_score + assess_score + completeness_score + (career_s * 0.10))
+    # Capped tight (0.04) so it acts as a genuine tiebreaker, not a dominant term —
+    # same reasoning as the availability multiplier and interest_score caps below.
+    signal_bonus = min(0.04, edu_score + github_score + assess_score + completeness_score + (career_s * 0.10))
     
     if not is_default and (jd_skills or jd_title_keywords):
         # 50% Skill coverage, 30% Title fit, 20% BGE Neural Semantic fit
@@ -790,12 +800,18 @@ def score_candidate(cand, semantic_similarity=None, jd_title_keywords=None, jd_s
     if is_consulting:
         penalties -= 0.05
         
-    # Availability Multiplier & Interest
+    # Availability Multiplier & Interest.
+    # raw_fit is already a 0-1 fit score by construction (its weights sum to 1.0),
+    # so it alone can reach ~0.9-1.0 for a strong-but-imperfect candidate. This
+    # interest bonus used to add up to +0.2 on top of that — enough on its own to
+    # push most well-tracked candidates over the 1.0 ceiling regardless of any
+    # other fix. Capped much tighter (0.03) so it's a genuine tiebreaker, not a
+    # second independent path to score saturation.
     availability_mult = calculate_availability_multiplier(cand)
     views = signals.get("profile_views_received_30d", 0)
     searches = signals.get("search_appearance_30d", 0)
     saved = signals.get("saved_by_recruiters_30d", 0)
-    interest_score = min((views * 2 + searches * 0.1 + saved * 5) / 100.0, 0.2)
+    interest_score = min((views * 2 + searches * 0.1 + saved * 5) / 100.0, 0.03)
     
     # Calibrated absolute fit score
     final_fit = (raw_fit + signal_bonus + penalties) * availability_mult + interest_score
