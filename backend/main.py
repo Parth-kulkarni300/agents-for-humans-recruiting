@@ -349,10 +349,10 @@ def get_shortlist(page: int = 1, limit: int = 50):
     total_candidates = agent_mod.TOTAL_INITIAL_CANDIDATES if agent_mod.TOTAL_INITIAL_CANDIDATES > 0 else len(agent_mod.CANDIDATES)
     honeypots = len(agent_mod.HONEYPOT_CANDIDATES) if hasattr(agent_mod, "HONEYPOT_CANDIDATES") and agent_mod.HONEYPOT_CANDIDATES else max(0, total_candidates - len(agent_mod.CANDIDATES))
     
-    # Calculate JD alignment counts (0.35+ threshold for qualified matches)
+    # Calculate JD alignment counts
     if agent_mod.ACTIVE_SHORTLIST:
-        eligible_candidates = len([c for c in agent_mod.ACTIVE_SHORTLIST if c.get("score", 0) >= 0.35])
-        unaligned_jd_count = len([c for c in agent_mod.ACTIVE_SHORTLIST if c.get("score", 0) < 0.35])
+        eligible_candidates = len([c for c in agent_mod.ACTIVE_SHORTLIST if c.get("score", 0) >= 0.55])
+        unaligned_jd_count = len([c for c in agent_mod.ACTIVE_SHORTLIST if c.get("score", 0) < 0.55])
     else:
         eligible_candidates = len(agent_mod.CANDIDATES)
         unaligned_jd_count = 0
