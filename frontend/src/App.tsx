@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import StrokeText from "./components/StrokeText";
 import MoltenMetal from "./components/MoltenMetal";
+import GlitchText from "./components/GlitchText";
 
 const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ? "http://127.0.0.1:8000" : "https://recruitshield-backend.onrender.com");
 
@@ -327,9 +328,17 @@ function Logo({ compact = false }: { compact?: boolean }) {
       </div>
       {!compact && (
         <div>
-          <div className="font-semibold tracking-tight text-foreground">
-            RecruitShield <span className="text-cyan-300">AI</span>
-          </div>
+          <GlitchText
+            speed={0.3}
+            enableShadows={true}
+            enableOnHover={false}
+            periodic={true}
+            intervalMs={4500}
+            activeMs={650}
+            className="logo-glitch"
+          >
+            RecruitShield AI
+          </GlitchText>
           <div className="micro-label text-muted-foreground">
             AGENTIC RECRUITMENT INTELLIGENCE
           </div>

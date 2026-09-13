@@ -68,6 +68,8 @@
 .security-card p{margin:0;color:#7e8c9f;font-size:14px;line-height:1.65}
 @media(max-width:850px){.security-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:620px){.security-strip{padding:10px 25px 65px}.security-grid{grid-template-columns:1fr}}
+.logo-glitch.glitch{font-size:15px;font-weight:600;letter-spacing:-.01em;color:#e7edf6;white-space:nowrap;margin:0;cursor:default}
+.logo-glitch.glitch::after,.logo-glitch.glitch::before{background-color:#080a0f;color:#e7edf6}
 .landing-shell{position:relative}
 .landing-molten-bg{position:fixed;inset:0;z-index:0;pointer-events:none}
 .landing-shell>.site-header,.landing-shell>.hero-shell,.landing-shell>.logo-ribbon,.landing-shell>.feature-strip,.landing-shell>.security-strip{position:relative;z-index:1}
