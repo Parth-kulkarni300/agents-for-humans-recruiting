@@ -1209,7 +1209,7 @@ function Landing({ onLaunch, onOpenHowItWorks }: { onLaunch: () => void; onOpenH
         </nav>
         <div className="flex items-center gap-4">
           <span className="hidden micro-label text-muted-foreground sm:block">
-            V 1.4.0 / BETA
+            V 1.5.0 / BETA
           </span>
           <button className="icon-button" onClick={onOpenHowItWorks} aria-label="Help">
             <CircleHelp size={17} />
