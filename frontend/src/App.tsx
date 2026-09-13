@@ -44,6 +44,7 @@ import {
 import StrokeText from "./components/StrokeText";
 import MoltenMetal from "./components/MoltenMetal";
 import GlitchText from "./components/GlitchText";
+import TiltedCard from "./components/TiltedCard";
 
 const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ? "http://127.0.0.1:8000" : "https://recruitshield-backend.onrender.com");
 
@@ -1321,6 +1322,15 @@ function Landing({ onLaunch, onOpenHowItWorks }: { onLaunch: () => void; onOpenH
               <i />
             </div>
           </div>
+          <TiltedCard
+            containerHeight="auto"
+            containerWidth="min(470px, 100%)"
+            rotateAmplitude={10}
+            scaleOnHover={1.03}
+            showMobileWarning={false}
+            showTooltip={false}
+            className="dashboard-window-tilt"
+          >
           <div className="dashboard-window">
             <div className="window-top">
               <span className="window-dot red" />
@@ -1382,6 +1392,7 @@ function Landing({ onLaunch, onOpenHowItWorks }: { onLaunch: () => void; onOpenH
               </div>
             </div>
           </div>
+          </TiltedCard>
           <div className="float-card bottom-card">
             <div className="flex items-center gap-2 text-xs">
               <span className="pulse-ring">
