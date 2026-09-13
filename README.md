@@ -1,17 +1,19 @@
 # RecruitShield AI: Autonomous Recruiter Co-Pilot (AWS Strands Agents SDK)
 
-RecruitShield AI is a premium, production-grade candidate discovery and integrity auditing system built for the **AWS Agents for Humans Hackathon (Track 2: Professional Agents)**. 
+**Team CodeNova100** | *AWS Data & AI Challenge (Track 2: Professional Agents)*
+
+RecruitShield AI is a premium, production-grade candidate discovery and integrity auditing system built for the **AWS Agents for Humans Hackathon**. 
 
 It is designed to automate the repetitive, high-judgment process of resume screening and fraud detection by pairing a custom Python scoring pipeline with the **AWS Strands Agents SDK** and a modern **React + Vite (Frontend) + FastAPI (Backend)** web interface.
 
 ---
 
 ## 🌐 Live Production Deployments
-
+* **🚀 Live Frontend App (Vercel)**: [`https://agents-for-humans-recruiting.vercel.app`](https://agents-for-humans-recruiting.vercel.app)
 * **⚙️ Live Backend API (Render)**: [`https://recruitshield-backend.onrender.com`](https://recruitshield-backend.onrender.com)
 * **📖 Interactive API Docs (Swagger)**: [`https://recruitshield-backend.onrender.com/docs`](https://recruitshield-backend.onrender.com/docs)
 * **🟢 API Health Check**: [`https://recruitshield-backend.onrender.com/health`](https://recruitshield-backend.onrender.com/health)
-* **🚀 Live Frontend App (Vercel)**: Deployed on Vercel (Auto-routes to Render live API in production)
+
 
 ---
 
