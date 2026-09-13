@@ -279,15 +279,18 @@ def run_agent_chat(req: ChatRequest):
                 )
         db_search_context = "\n".join(search_context_lines) if search_context_lines else "No specific keyword matches found."
 
-        # Extract candidate context summary for LLM reasoning
+        # Extract rich candidate context summary for LLM reasoning
         active_list = agent_mod.ACTIVE_SHORTLIST if agent_mod.ACTIVE_SHORTLIST else agent_mod.CANDIDATES
         top_candidates_summary = []
-        for idx, c in enumerate((active_list or [])[:20]):
-            rank_num = idx + 1
+        for idx, c in enumerate((active_list or [])[:25]):
+            rank_num = c.get('rank', idx + 1)
             raw_score = c.get('score', 0)
             score_pct = round(raw_score * 100, 1) if raw_score <= 1.0 else round(raw_score, 1)
+            cand_raw = c.get("candidate_raw", c)
+            skills = cand_raw.get("skills", [])
+            skills_str = ", ".join([(s.get("name") if isinstance(s, dict) else str(s)) for s in skills[:6]])
             top_candidates_summary.append(
-                f"- Rank #{rank_num}: {c.get('name')} | Role: {c.get('current_title', c.get('role', 'N/A'))} | Match Score: {score_pct}% | Location: {c.get('location', 'N/A')} | Exp: {c.get('years_exp', c.get('experience', 'N/A'))} yrs | Fit: {c.get('reasoning', c.get('fit', 'Strong role match'))}"
+                f"- Rank #{rank_num} | ID: {c.get('candidate_id')} | Name: {c.get('name')} | Title: {c.get('current_title', 'N/A')} at {c.get('current_company', 'N/A')} | Match Score: {score_pct}% | Location: {c.get('location', 'N/A')} | Exp: {c.get('years_exp', 0)} yrs | Skills: {skills_str} | Reasoning: {c.get('reasoning', 'Strong role match')}"
             )
         cand_context = "\n".join(top_candidates_summary) if top_candidates_summary else "No candidates currently loaded."
 
@@ -307,17 +310,17 @@ Candidate Pipeline Stats:
 - Total Candidates: {len(agent_mod.CANDIDATES)}
 - Security Honeypots Blocked: {agent_mod.HONEYPOT_COUNT} trap profiles
 
-Top Ranked Candidates in Active Pipeline:
+Active Candidates Pool (Ranked Shortlist & Profiles):
 {cand_context}
 
 Database Search Matches for "{user_query}":
 {db_search_context}
 
 INSTRUCTIONS:
-1. Provide a direct, short, and concise response (max 2-3 sentences or 3 bullet points) answering ONLY the user's specific question: "{user_query}".
-2. Do NOT dump long candidate lists or pipeline stats unless the user explicitly asks for "all candidates" or "pipeline summary".
-3. DO NOT output raw JSON blocks or code strings.
-4. Keep the response clean, friendly, executive, and directly to the point."""
+1. Directly answer the user's specific question: "{user_query}".
+2. You can answer questions about ANY specific candidate (by name or rank number), skills, companies, experience, locations, or honeypot security rejections.
+3. Keep the response clean, concise, executive, and formatted in Markdown with bullet points.
+4. DO NOT output raw JSON code blocks or unformatted tool dumps."""
 
                 response = client_gemini.models.generate_content(
                     model="gemini-2.5-flash",
@@ -330,45 +333,110 @@ INSTRUCTIONS:
         if ai_summary and len(ai_summary.strip()) > 10:
             response_text = ai_summary
         else:
-            # Clean structured fallback (no raw JSON dumps)
+            # Smart Universal Query Engine (Fallback for all candidate questions)
             q_lower = user_query.lower()
-            top_keywords = ["#1", "no.1", "no 1", "no. 1", "rank 1", "rank #1", "top candidate", "top ranked", "first candidate", "number 1", "highest score", "why is #1", "why #1", "why top", "who is 1", "who is #1", "who is no.1", "who is no 1", "who is top", "top 1", "who is ranked"]
-            is_asking_top = any(k in q_lower for k in top_keywords)
             
-            found_cands = []
-            if is_asking_top and active_list:
-                found_cands.append(active_list[0])
-            else:
-                for c in (active_list or []):
-                    c_name = c.get("name", "").lower()
-                    if c_name and c_name in q_lower:
-                        found_cands.append(c)
+            # 1. Check for specific rank number queries (e.g. "who is rank 2", "#3", "no. 4", "second candidate")
+            rank_match = re.search(r'(?:rank|no\.?|#|candidate)\s*(\d+)', q_lower)
+            target_rank = int(rank_match.group(1)) if rank_match else None
+            
+            # Map ordinals
+            if not target_rank:
+                ordinals = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10}
+                for word, r_val in ordinals.items():
+                    if word in q_lower:
+                        target_rank = r_val
+                        break
 
-            if found_cands:
-                cand = found_cands[0]
+            found_by_rank = None
+            if target_rank and active_list:
+                for c in active_list:
+                    if c.get("rank") == target_rank:
+                        found_by_rank = c
+                        break
+                if not found_by_rank and target_rank <= len(active_list):
+                    found_by_rank = active_list[target_rank - 1]
+
+            # 2. Check for candidate name queries
+            found_by_name = []
+            for c in (active_list or []):
+                c_name = c.get("name", "").lower()
+                name_parts = [p for p in c_name.split() if len(p) > 2]
+                if c_name and (c_name in q_lower or any(p in q_lower for p in name_parts)):
+                    found_by_name.append(c)
+
+            # 3. Check for security/honeypot queries
+            is_honeypot_query = any(h in q_lower for h in ["honeypot", "firewall", "blocked", "rejected", "fake", "prompt injection", "trap", "disqualified"])
+
+            if found_by_rank:
+                cand = found_by_rank
                 raw_score = cand.get('score', 0)
                 score_pct = round(raw_score * 100, 1) if raw_score <= 1.0 else round(raw_score, 1)
-                rank_num = cand.get('rank', 1)
-                name = cand.get('name', 'Ananya Iyer')
+                rank_num = cand.get('rank', target_rank)
+                name = cand.get('name', 'Candidate')
                 title = cand.get('current_title', cand.get('role', 'Engineer'))
-                cid = cand.get('candidate_id', 'C-002')
-                reasoning = cand.get('reasoning', 'Exceptional technical depth and verified production impact.')
+                cid = cand.get('candidate_id', 'N/A')
+                reasoning = cand.get('reasoning', 'Strong role alignment and verified skills.')
                 
                 resp_lines = [
-                    f"### 🎯 Rank #{rank_num} Candidate: **{name}**\n",
-                    f"**{name}** (`{cid}`) is currently ranked **#{rank_num}** with a **{score_pct}% Match Score**.\n",
-                    "**Key Highlights:**",
-                    f"- **Current Title**: {title}",
+                    f"### 🎯 Candidate Analysis: **Rank #{rank_num} — {name}**\n",
+                    f"**{name}** (`{cid}`) is ranked **#{rank_num}** with a **{score_pct}% Match Score**.\n",
+                    "**Profile Overview:**",
+                    f"- **Current Role**: *{title}*",
+                    f"- **Experience**: {cand.get('years_exp', 'N/A')} years | Location: {cand.get('location', 'N/A')}",
                     f"- **Recruiter Reasoning**: {reasoning}",
-                    f"- **Firewall Verification**: 100% Passed (Zero honeypot flags or prompt injections detected)."
+                    f"- **Security Status**: Passed 5-Point Anomaly Firewall (Clean Profile)."
                 ]
                 response_text = "\n".join(resp_lines)
+
+            elif found_by_name:
+                cand = found_by_name[0]
+                raw_score = cand.get('score', 0)
+                score_pct = round(raw_score * 100, 1) if raw_score <= 1.0 else round(raw_score, 1)
+                rank_num = cand.get('rank', 'N/A')
+                name = cand.get('name', 'Candidate')
+                title = cand.get('current_title', cand.get('role', 'Engineer'))
+                cid = cand.get('candidate_id', 'N/A')
+                reasoning = cand.get('reasoning', 'Strong role alignment and verified skills.')
+                
+                resp_lines = [
+                    f"### 👤 Candidate Profile: **{name}**\n",
+                    f"**{name}** (`{cid}`) is ranked **#{rank_num}** with a **{score_pct}% Match Score**.\n",
+                    "**Key Profile Details:**",
+                    f"- **Title & Company**: *{title}* at {cand.get('current_company', 'Tech Company')}",
+                    f"- **Experience & Location**: {cand.get('years_exp', 'N/A')} yrs | {cand.get('location', 'N/A')}",
+                    f"- **AI Recruiter Reasoning**: {reasoning}",
+                    f"- **Firewall Verification**: 100% Clean profile verified."
+                ]
+                response_text = "\n".join(resp_lines)
+
+            elif is_honeypot_query and agent_mod.HONEYPOT_CANDIDATES:
+                resp_lines = [
+                    f"### 🛡️ 5-Point Anomaly Firewall Audit Results\n",
+                    f"- **Total Trap Profiles Purged**: `{len(agent_mod.HONEYPOT_CANDIDATES)}` honeypot profiles.",
+                    f"- **Firewall Status**: 100% Active (All remaining candidate profiles are clean).\n",
+                    "**Sample Disqualified Profiles:**"
+                ]
+                for hp in agent_mod.HONEYPOT_CANDIDATES[:3]:
+                    reasons_str = "; ".join(hp.get("reasons", ["Logical anomaly"]))
+                    resp_lines.append(f"- **{hp.get('name', 'Trap Candidate')}** (`{hp.get('candidate_id', 'N/A')}`) — *Reason*: {reasons_str}")
+                response_text = "\n".join(resp_lines)
+
+            elif db_search_results:
+                resp_lines = [
+                    f"### 🔍 Database Search Matches for *\"{user_query}\"*\n",
+                    f"Found **{len(db_search_results)}** candidate match(es):\n"
+                ]
+                for res in db_search_results[:5]:
+                    resp_lines.append(f"- **{res['name']}** (`{res['candidate_id']}`) — *{res['headline']}* | Skills: {res['skills']}")
+                response_text = "\n".join(resp_lines)
+
             else:
                 top_3 = (active_list or [])[:3]
                 resp_lines = [
-                    f"### 🛡️ RecruitShield Executive Summary\n",
-                    f"- **Total Candidates Evaluated**: {len(agent_mod.CANDIDATES)}",
-                    f"- **Security Honeypots Blocked**: {agent_mod.HONEYPOT_COUNT} profiles\n",
+                    f"### 🛡️ RecruitShield Shortlist Overview\n",
+                    f"- **Total Active Candidates**: {len(agent_mod.CANDIDATES)}",
+                    f"- **Security Honeypots Blocked**: {agent_mod.HONEYPOT_COUNT} trap profiles\n",
                     "**Top Ranked Shortlist:**"
                 ]
                 for c in top_3:
