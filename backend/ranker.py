@@ -59,11 +59,16 @@ SENTENCE_MODEL = None
 def get_sentence_model():
     global SENTENCE_MODEL
     if SENTENCE_MODEL is None:
+        model_name = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
         try:
             from sentence_transformers import SentenceTransformer
-            SENTENCE_MODEL = SentenceTransformer('BAAI/bge-base-en-v1.5')
+            try:
+                SENTENCE_MODEL = SentenceTransformer(model_name)
+            except Exception as e1:
+                logger.warning(f"Failed to load {model_name}, falling back to lightweight all-MiniLM-L6-v2: {e1}")
+                SENTENCE_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
         except Exception as e:
-            print(f"Warning: Failed to load SentenceTransformer: {e}")
+            logger.warning(f"Warning: Failed to load SentenceTransformer: {e}")
     return SENTENCE_MODEL
 
 def parse_date(date_str):
