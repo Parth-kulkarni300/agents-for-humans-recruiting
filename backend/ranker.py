@@ -84,7 +84,7 @@ def encode_texts(texts, normalize=True):
 
     if hf_token:
         try:
-            url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"
+            url = f"https://router.huggingface.co/hf-inference/models/{model_name}"
             headers = {"Authorization": f"Bearer {hf_token}"}
             payload = {"inputs": texts, "options": {"wait_for_model": True}}
             res = requests.post(url, headers=headers, json=payload, timeout=15)
