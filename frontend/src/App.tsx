@@ -42,6 +42,7 @@ import {
   Zap,
 } from "lucide-react";
 import StrokeText from "./components/StrokeText";
+import MoltenMetal from "./components/MoltenMetal";
 
 const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ? "http://127.0.0.1:8000" : "https://recruitshield-backend.onrender.com");
 
@@ -1167,7 +1168,29 @@ export default function RecruitShieldApp() {
 
 function Landing({ onLaunch, onOpenHowItWorks }: { onLaunch: () => void; onOpenHowItWorks: () => void }) {
   return (
-    <main className="min-h-screen overflow-hidden">
+    <main className="min-h-screen overflow-hidden landing-shell">
+      <div className="landing-molten-bg">
+        <MoltenMetal
+          color1="#080a0f"
+          color2="#0d6b78"
+          color3="#5cecf5"
+          speed={0.28}
+          scale={4.5}
+          detail={3}
+          glow={1.4}
+          coreSize={0.09}
+          swirl={0.8}
+          fold={-0.2}
+          blackPoint={0.08}
+          brightness={1.1}
+          colorMode="molten"
+          grain={true}
+          grainIntensity={0.035}
+          mouseInteraction={true}
+          mouseStrength={0.25}
+          opacity={0.8}
+        />
+      </div>
       <header className="site-header">
         <Logo />
         <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
