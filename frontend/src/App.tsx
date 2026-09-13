@@ -41,6 +41,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import StrokeText from "./components/StrokeText";
 
 type Candidate = {
   id: number;
@@ -1116,7 +1117,22 @@ function Landing({ onLaunch, onOpenHowItWorks }: { onLaunch: () => void; onOpenH
           <h1>
             The future of
             <br />
-            <span className="hero-gradient">AI recruiting.</span>
+            <StrokeText
+              className="hero-gradient hero-stroke"
+              text="AI recruiting."
+              strokeColor="#12d9e8"
+              fillColor="#12d9e8"
+              strokeWidth={1.6}
+              drawDuration={1.4}
+              fillDelay={0.15}
+              stagger={0.04}
+              ease="power2.out"
+              trigger="mount"
+              fillMode="wipe"
+              fontSize={110}
+              fontWeight={700}
+              letterSpacing={-6}
+            />
           </h1>
           <p className="hero-sub">
             Automated candidate sourcing, semantic matching, and threat anomaly
