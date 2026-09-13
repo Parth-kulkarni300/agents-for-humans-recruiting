@@ -43,6 +43,8 @@ import {
 } from "lucide-react";
 import StrokeText from "./components/StrokeText";
 
+const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ? "http://127.0.0.1:8000" : "https://recruitshield-backend.onrender.com");
+
 type Candidate = {
   id: number;
   rank?: number;
@@ -605,7 +607,7 @@ export default function RecruitShieldApp() {
   // API: Fetch shortlist
   const fetchShortlist = async (p = 1) => {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/shortlist?page=${p}&limit=50`);
+      const res = await fetch(`${API_BASE}/shortlist?page=${p}&limit=50`);
       const data = await res.json();
       
       if (data.stats) {
@@ -973,7 +975,7 @@ export default function RecruitShieldApp() {
   const analyze = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/chat", {
+      const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: "rank top candidates", job_description: jd, ...getAwsCredsPayload() })
@@ -1006,7 +1008,7 @@ export default function RecruitShieldApp() {
     setHoneypotLoading(true);
     setShowHoneypotsModal(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/honeypots");
+      const res = await fetch(`${API_BASE}/honeypots`);
       const data = await res.json();
       setHoneypotList(data.honeypots || []);
     } catch (e) {
@@ -1492,7 +1494,7 @@ function Ingest({
     
     try {
       const endpoint = type === 'jd' ? '/upload_jd' : '/upload_candidates';
-      const res = await fetch(`http://127.0.0.1:8000${endpoint}`, {
+      const res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         body: formData,
       });
@@ -2900,7 +2902,7 @@ function AgentConsoleModal({
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/agent_logs");
+      const res = await fetch(`${API_BASE}/agent_logs`);
       const data = await res.json();
       setLogs(data.logs || []);
     } catch (e) {
@@ -3304,7 +3306,7 @@ function AIChatbotWidget() {
     setLoading(true);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/chat", {
+      const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: query, ...getAwsCredsPayload() }),
