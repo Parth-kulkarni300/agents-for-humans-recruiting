@@ -373,21 +373,52 @@ function DropZone({
   icon,
   files,
   onFiles,
+  onLoadDemo,
 }: {
   title: string;
   description: string;
   icon: React.ReactNode;
   files: string[];
   onFiles: (x: FileList | null) => void;
+  onLoadDemo?: () => void;
 }) {
   return (
     <div className="ingest-card">
-      <div className="card-heading">
-        <span className="drop-icon">{icon}</span>
-        <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
+      <div className="card-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <span className="drop-icon">{icon}</span>
+          <div>
+            <h3>{title}</h3>
+            <p>{description}</p>
+          </div>
         </div>
+        {onLoadDemo && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLoadDemo();
+            }}
+            title="Load the pre-bundled 15-candidate demo dataset"
+            style={{
+              padding: '6px 14px',
+              borderRadius: '6px',
+              background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(3, 105, 161, 0.2) 100%)',
+              border: '1px solid rgba(56, 189, 248, 0.5)',
+              color: '#38bdf8',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 0 10px rgba(56, 189, 248, 0.2)',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            <Zap size={14} /> ⚡ Load Demo Dataset
+          </button>
+        )}
       </div>
       <label className="drop-zone">
         <input
@@ -1586,6 +1617,24 @@ function Ingest({
       console.error(e);
     }
   };
+  const handleLoadDemoDataset = async () => {
+    try {
+      showToast("Loading bundled demo dataset...", "info");
+      const res = await fetch(`${API_BASE}/load_demo`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setFiles(["sample_candidates.jsonl (Demo Dataset)"]);
+        if (data.total_candidates) onCandidatesUploaded(data.total_candidates);
+        showToast(`Demo dataset loaded successfully (${data.total_candidates} candidates)`, "success");
+      } else {
+        showToast(`Failed to load demo dataset: ${data.detail || 'Error'}`, "error");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Error connecting to backend server.", "error");
+    }
+  };
+
   return (
     <main className="workspace min-h-screen landing-shell">
       <div className="landing-molten-bg">
@@ -1632,6 +1681,7 @@ function Ingest({
             icon={<Users size={22} />}
             files={files}
             onFiles={(list: any) => addFiles(list, 'candidates')}
+            onLoadDemo={handleLoadDemoDataset}
           />
           <div className="ingest-card">
             <div className="card-heading">
@@ -3401,10 +3451,11 @@ function AIChatbotWidget({ jd }: { jd: string }) {
     setLoading(true);
 
     try {
+      const activeJdText = jd || (typeof (window as any).__ACTIVE_JD !== 'undefined' ? (window as any).__ACTIVE_JD : "");
       const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: query, job_description: jd, ...getAwsCredsPayload() }),
+        body: JSON.stringify({ message: query, job_description: activeJdText, ...getAwsCredsPayload() }),
       });
       const data = await res.json();
       const aiResponse = res.ok

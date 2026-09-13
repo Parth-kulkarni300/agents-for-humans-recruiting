@@ -749,6 +749,32 @@ async def upload_candidates_batch(
         logger.error(f"Error parsing candidate file: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to ingest candidates: {str(e)}")
 
+@app.post("/load_demo")
+def load_demo_dataset():
+    """
+    Resets the candidate database back to the bundled demo dataset (sample_candidates.jsonl).
+    Re-calculates embeddings for the demo dataset.
+    """
+    import backend.agent as agent_mod
+    demo_path = Path(__file__).parent / "sample_candidates.jsonl"
+    if not demo_path.exists():
+        raise HTTPException(status_code=404, detail="Bundled demo dataset file not found.")
+
+    success = load_candidates_file(str(demo_path))
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to load demo dataset.")
+
+    agent_mod.ACTIVE_SHORTLIST.clear()
+    embeddings_status = compute_and_persist_embeddings(agent_mod.CANDIDATES)
+
+    return {
+        "status": "success",
+        "message": "Loaded demo dataset successfully.",
+        "total_candidates": len(agent_mod.CANDIDATES),
+        "honeypot_count": len(agent_mod.HONEYPOT_CANDIDATES),
+        "embeddings": embeddings_status
+    }
+
 # Helper function to parse docx XML directly (saves us installing python-docx)
 def parse_docx_bytes(file_bytes):
     import io
