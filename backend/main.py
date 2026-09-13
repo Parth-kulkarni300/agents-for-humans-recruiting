@@ -753,27 +753,49 @@ async def upload_candidates_batch(
 def load_demo_dataset():
     """
     Resets the candidate database back to the bundled demo dataset (sample_candidates.jsonl).
-    Re-calculates embeddings for the demo dataset.
+    Re-calculates embeddings for the demo dataset safely.
     """
     import backend.agent as agent_mod
-    demo_path = Path(__file__).parent / "sample_candidates.jsonl"
-    if not demo_path.exists():
+    possible_paths = [
+        Path(__file__).parent / "sample_candidates.jsonl",
+        Path(__file__).parent / "candidates.jsonl",
+        Path.cwd() / "backend" / "sample_candidates.jsonl",
+        Path.cwd() / "sample_candidates.jsonl",
+        Path.cwd() / "candidates.jsonl",
+        Path(__file__).parent.parent / "sample_candidates.jsonl",
+        Path(__file__).parent.parent / "backend" / "sample_candidates.jsonl",
+    ]
+    
+    demo_path = None
+    for p in possible_paths:
+        if p.exists() and p.is_file() and p.stat().st_size > 0:
+            demo_path = p
+            break
+
+    if not demo_path:
         raise HTTPException(status_code=404, detail="Bundled demo dataset file not found.")
 
-    success = load_candidates_file(str(demo_path))
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to load demo dataset.")
+    try:
+        success = load_candidates_file(str(demo_path))
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to load demo dataset.")
 
-    agent_mod.ACTIVE_SHORTLIST.clear()
-    embeddings_status = compute_and_persist_embeddings(agent_mod.CANDIDATES)
+        agent_mod.ACTIVE_SHORTLIST.clear()
 
-    return {
-        "status": "success",
-        "message": "Loaded demo dataset successfully.",
-        "total_candidates": len(agent_mod.CANDIDATES),
-        "honeypot_count": len(agent_mod.HONEYPOT_CANDIDATES),
-        "embeddings": embeddings_status
-    }
+        try:
+            compute_and_persist_embeddings(agent_mod.CANDIDATES)
+        except Exception as emb_err:
+            logger.warning(f"Demo embedding auto-compute warning: {emb_err}")
+
+        return {
+            "status": "success",
+            "message": "Loaded demo dataset successfully.",
+            "total_candidates": len(agent_mod.CANDIDATES),
+            "honeypot_count": len(agent_mod.HONEYPOT_CANDIDATES)
+        }
+    except Exception as e:
+        logger.error(f"Error loading demo dataset: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load demo dataset: {str(e)}")
 
 # Helper function to parse docx XML directly (saves us installing python-docx)
 def parse_docx_bytes(file_bytes):

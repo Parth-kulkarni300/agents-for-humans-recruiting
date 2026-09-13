@@ -42,15 +42,24 @@ def load_candidates_file(file_path: str):
     RAW_INITIAL_CANDIDATES.clear()
     
     path = Path(file_path)
-    if not path.exists():
-        logger.warning(f"Candidates file not found at: {file_path}")
-        # Fall back to the small sample dataset shipped with the repo, so a
-        # fresh clone has something to demo without needing a private dataset.
-        fallback_path = Path(__file__).parent / "sample_candidates.jsonl"
-        if fallback_path.exists():
-            logger.info(f"Falling back to bundled sample dataset at: {fallback_path}")
-            path = fallback_path
-        else:
+    if not path.exists() or not path.is_file() or path.stat().st_size == 0:
+        logger.warning(f"Candidates file not found or empty at: {file_path}")
+        possible_fallbacks = [
+            Path(__file__).parent / "sample_candidates.jsonl",
+            Path(__file__).parent / "candidates.jsonl",
+            Path.cwd() / "backend" / "sample_candidates.jsonl",
+            Path.cwd() / "sample_candidates.jsonl",
+            Path.cwd() / "candidates.jsonl",
+            Path(__file__).parent.parent / "sample_candidates.jsonl",
+            Path(__file__).parent.parent / "backend" / "sample_candidates.jsonl",
+        ]
+        path = None
+        for fb in possible_fallbacks:
+            if fb.exists() and fb.is_file() and fb.stat().st_size > 0:
+                logger.info(f"Falling back to bundled dataset at: {fb}")
+                path = fb
+                break
+        if not path:
             logger.error("No candidates database file found. Please check candidates.jsonl location.")
             return False
             

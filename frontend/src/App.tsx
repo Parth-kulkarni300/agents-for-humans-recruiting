@@ -1059,6 +1059,26 @@ export default function RecruitShieldApp() {
     }
   };
 
+  const handleLoadDemoDataset = async () => {
+    try {
+      showToast("Loading bundled demo dataset...", "info");
+      const res = await fetch(`${API_BASE}/load_demo`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setFiles(["sample_candidates.jsonl (Demo Dataset)"]);
+        if (data.total_candidates) {
+          fetchShortlist(1);
+          showToast(`Demo dataset loaded successfully (${data.total_candidates} candidates)`, "success");
+        }
+      } else {
+        showToast(`Failed to load demo dataset: ${data.detail || 'Error'}`, "error");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Error connecting to backend server.", "error");
+    }
+  };
+
   if (screen === "landing")
     return (
       <>
@@ -1091,6 +1111,7 @@ export default function RecruitShieldApp() {
           }}
           onOpenAgentConsole={() => setShowAgentConsoleModal(true)}
           onOpenBedrockConfig={() => setIsBedrockConfigOpen(true)}
+          onLoadDemo={handleLoadDemoDataset}
           showToast={showToast}
         />
         <AgentConsoleModal
@@ -1175,6 +1196,7 @@ export default function RecruitShieldApp() {
         onShortlistPage={handleShortlistPage}
         isAllPageShortlisted={isAllPageShortlisted}
         onExportShortlist={handleExportShortlist}
+        onLoadDemo={handleLoadDemoDataset}
       />
       <HoneypotModal
         isOpen={showHoneypotsModal}
@@ -1507,6 +1529,7 @@ function Ingest({
   onCandidatesUploaded,
   onOpenAgentConsole,
   onOpenBedrockConfig,
+  onLoadDemo,
   showToast,
 }: {
   files: string[];
@@ -1522,6 +1545,7 @@ function Ingest({
   onCandidatesUploaded: (count: number) => void;
   onOpenAgentConsole?: () => void;
   onOpenBedrockConfig?: () => void;
+  onLoadDemo?: () => void;
   showToast: (message: string, type?: "success" | "error" | "info") => void;
 }) {
   const [isListening, setIsListening] = useState(false);
@@ -1617,23 +1641,6 @@ function Ingest({
       console.error(e);
     }
   };
-  const handleLoadDemoDataset = async () => {
-    try {
-      showToast("Loading bundled demo dataset...", "info");
-      const res = await fetch(`${API_BASE}/load_demo`, { method: "POST" });
-      const data = await res.json();
-      if (res.ok && data.status === "success") {
-        setFiles(["sample_candidates.jsonl (Demo Dataset)"]);
-        if (data.total_candidates) onCandidatesUploaded(data.total_candidates);
-        showToast(`Demo dataset loaded successfully (${data.total_candidates} candidates)`, "success");
-      } else {
-        showToast(`Failed to load demo dataset: ${data.detail || 'Error'}`, "error");
-      }
-    } catch (err) {
-      console.error(err);
-      showToast("Error connecting to backend server.", "error");
-    }
-  };
 
   return (
     <main className="workspace min-h-screen landing-shell">
@@ -1681,7 +1688,7 @@ function Ingest({
             icon={<Users size={22} />}
             files={files}
             onFiles={(list: any) => addFiles(list, 'candidates')}
-            onLoadDemo={handleLoadDemoDataset}
+            onLoadDemo={onLoadDemo}
           />
           <div className="ingest-card">
             <div className="card-heading">
@@ -1826,15 +1833,39 @@ function Ingest({
               <b>Enterprise Data Security:</b> Encrypted in transit. Raw candidate data is strictly isolated and never used for model training.
             </span>
           </div>
-          <GlowButton onClick={onAnalyze}>
-            {loading ? (
-              <>
-                <span className="spinner" /> AI Agents Reasoning...
-              </>
-            ) : (
-              <>Run AI Screen & Candidate Match</>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            {onLoadDemo && (
+              <button
+                type="button"
+                onClick={onLoadDemo}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: "10px",
+                  background: "linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(3, 105, 161, 0.2) 100%)",
+                  border: "1px solid rgba(56, 189, 248, 0.5)",
+                  color: "#38bdf8",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  boxShadow: "0 0 15px rgba(56, 189, 248, 0.25)"
+                }}
+              >
+                <Zap size={16} /> ⚡ Load Demo Dataset
+              </button>
             )}
-          </GlowButton>
+            <GlowButton onClick={onAnalyze}>
+              {loading ? (
+                <>
+                  <span className="spinner" /> AI Agents Reasoning...
+                </>
+              ) : (
+                <>Run AI Screen & Candidate Match</>
+              )}
+            </GlowButton>
+          </div>
         </div>
       </section>
     </main>
@@ -1920,6 +1951,7 @@ function Pipeline({
   onShortlistPage,
   isAllPageShortlisted,
   onExportShortlist,
+  onLoadDemo,
 }: {
   candidates: Candidate[];
   filtered: Candidate[];
@@ -1959,6 +1991,7 @@ function Pipeline({
   onShortlistPage: () => void;
   isAllPageShortlisted: boolean;
   onExportShortlist: (candidatesToExport: Candidate[]) => void;
+  onLoadDemo?: () => void;
 }) {
   const [isAnalyseModalOpen, setIsAnalyseModalOpen] = useState(false);
 
@@ -2288,6 +2321,29 @@ function Pipeline({
                 <Terminal size={15} style={{ color: "#38bdf8" }} />
                 <span>Strands Agent Console</span>
               </button>
+              {onLoadDemo && (
+                <button
+                  onClick={onLoadDemo}
+                  title="Reset/load the 15-candidate demo dataset"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "8px 14px",
+                    borderRadius: "8px",
+                    background: "linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(3, 105, 161, 0.2) 100%)",
+                    border: "1px solid rgba(56, 189, 248, 0.5)",
+                    color: "#38bdf8",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    boxShadow: "0 0 15px rgba(56, 189, 248, 0.2)"
+                  }}
+                >
+                  <Zap size={14} />
+                  <span>⚡ Load Demo Dataset</span>
+                </button>
+              )}
               <button className="sort-button">
                 Ranked by <b>Match score</b>
                 <ChevronDown size={14} />
