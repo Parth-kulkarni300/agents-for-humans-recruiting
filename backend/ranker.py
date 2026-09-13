@@ -59,7 +59,7 @@ SENTENCE_MODEL = None
 def get_sentence_model():
     global SENTENCE_MODEL
     if SENTENCE_MODEL is None:
-        model_name = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        model_name = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-base-en-v1.5")
         try:
             from sentence_transformers import SentenceTransformer
             try:
