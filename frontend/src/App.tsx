@@ -373,14 +373,12 @@ function DropZone({
   icon,
   files,
   onFiles,
-  onLoadDemo,
 }: {
   title: string;
   description: string;
   icon: React.ReactNode;
   files: string[];
   onFiles: (x: FileList | null) => void;
-  onLoadDemo?: () => void;
 }) {
   return (
     <div className="ingest-card">
@@ -392,33 +390,6 @@ function DropZone({
             <p>{description}</p>
           </div>
         </div>
-        {onLoadDemo && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onLoadDemo();
-            }}
-            title="Load the pre-bundled 15-candidate demo dataset"
-            style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
-              background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(3, 105, 161, 0.2) 100%)',
-              border: '1px solid rgba(56, 189, 248, 0.5)',
-              color: '#38bdf8',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 0 10px rgba(56, 189, 248, 0.2)',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            <Zap size={14} /> Load Demo Dataset
-          </button>
-        )}
       </div>
       <label className="drop-zone">
         <input
@@ -1198,7 +1169,6 @@ export default function RecruitShieldApp() {
         onShortlistPage={handleShortlistPage}
         isAllPageShortlisted={isAllPageShortlisted}
         onExportShortlist={handleExportShortlist}
-        onLoadDemo={handleLoadDemoDataset}
       />
       <HoneypotModal
         isOpen={showHoneypotsModal}
@@ -1690,7 +1660,6 @@ function Ingest({
             icon={<Users size={22} />}
             files={files}
             onFiles={(list: any) => addFiles(list, 'candidates')}
-            onLoadDemo={onLoadDemo}
           />
           <div className="ingest-card">
             <div className="card-heading">
@@ -1957,7 +1926,6 @@ function Pipeline({
   onShortlistPage,
   isAllPageShortlisted,
   onExportShortlist,
-  onLoadDemo,
 }: {
   candidates: Candidate[];
   filtered: Candidate[];
@@ -1997,7 +1965,6 @@ function Pipeline({
   onShortlistPage: () => void;
   isAllPageShortlisted: boolean;
   onExportShortlist: (candidatesToExport: Candidate[]) => void;
-  onLoadDemo?: () => void;
 }) {
   const [isAnalyseModalOpen, setIsAnalyseModalOpen] = useState(false);
 
@@ -2327,31 +2294,6 @@ function Pipeline({
                 <Terminal size={15} style={{ color: "#38bdf8" }} />
                 <span>Strands Agent Console</span>
               </button>
-              {onLoadDemo && (
-                <button
-                  onClick={onLoadDemo}
-                  title="Reset/load the 15-candidate demo dataset"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    padding: "8px 14px",
-                    borderRadius: "8px",
-                    background: "linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(3, 105, 161, 0.2) 100%)",
-                    border: "1px solid rgba(56, 189, 248, 0.5)",
-                    color: "#38bdf8",
-                    fontSize: "13px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                    boxShadow: "0 0 15px rgba(56, 189, 248, 0.2)"
-                  }}
-                >
-                  <Zap size={14} />
-                  <span>Load Demo Dataset</span>
-                </button>
-              )}
               <button className="sort-button">
                 Ranked by <b>Match score</b>
                 <ChevronDown size={14} />
