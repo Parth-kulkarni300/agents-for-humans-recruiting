@@ -44,10 +44,6 @@ def compute_and_persist_embeddings(candidates: list) -> str:
         return "No candidates to embed."
 
     try:
-        model = get_sentence_model()
-        if model is None:
-            return "Embeddings skipped (model unavailable) — rule-based ranking active"
-
         texts = []
         ids = []
         for c in candidates:
@@ -61,7 +57,7 @@ def compute_and_persist_embeddings(candidates: list) -> str:
         batch_size = 512
         all_embeddings = []
         for i in range(0, len(texts), batch_size):
-            batch = model.encode(texts[i:i + batch_size], normalize_embeddings=True, show_progress_bar=False)
+            batch = ranker_mod.encode_texts(texts[i:i + batch_size], normalize=True)
             all_embeddings.append(batch)
 
         embeddings_matrix = np.vstack(all_embeddings)

@@ -65,11 +65,48 @@ def get_sentence_model():
             try:
                 SENTENCE_MODEL = SentenceTransformer(model_name)
             except Exception as e1:
-                logger.warning(f"Failed to load {model_name}, falling back to lightweight all-MiniLM-L6-v2: {e1}")
+                print(f"Failed to load {model_name}, falling back to lightweight all-MiniLM-L6-v2: {e1}")
                 SENTENCE_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
         except Exception as e:
-            logger.warning(f"Warning: Failed to load SentenceTransformer: {e}")
+            print(f"Warning: Failed to load SentenceTransformer: {e}")
     return SENTENCE_MODEL
+
+def encode_texts(texts, normalize=True):
+    """
+    Encodes text or list of texts into embeddings.
+    If HF_TOKEN environment variable is present, routes through Hugging Face's serverless
+    Inference API for BAAI/bge-base-en-v1.5 to consume 0MB local server RAM (ideal for Render free tier).
+    Otherwise falls back to local SentenceTransformer (BAAI/bge-base-en-v1.5 or all-MiniLM-L6-v2).
+    """
+    import requests
+    hf_token = os.environ.get("HF_TOKEN")
+    model_name = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-base-en-v1.5")
+
+    if hf_token:
+        try:
+            url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"
+            headers = {"Authorization": f"Bearer {hf_token}"}
+            payload = {"inputs": texts, "options": {"wait_for_model": True}}
+            res = requests.post(url, headers=headers, json=payload, timeout=15)
+            if res.status_code == 200:
+                vecs = np.array(res.json(), dtype=np.float32)
+                if normalize:
+                    if vecs.ndim == 1:
+                        norm = np.linalg.norm(vecs)
+                        return vecs / (norm + 1e-9)
+                    else:
+                        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+                        return vecs / (norms + 1e-9)
+                return vecs
+            else:
+                print(f"HF API status {res.status_code}: {res.text[:150]}. Falling back to local model.")
+        except Exception as api_err:
+            print(f"HF API call failed ({api_err}). Falling back to local model.")
+
+    model = get_sentence_model()
+    if model is not None:
+        return model.encode(texts, normalize_embeddings=normalize, show_progress_bar=False)
+    raise RuntimeError("No embedding provider or model available.")
 
 def parse_date(date_str):
     if not date_str:
@@ -863,19 +900,17 @@ def rank_candidates(candidates_list, jd_text=""):
     
     # If precomputed embeddings exist and JD is provided, compute semantic scores
     if EMBEDDINGS_LOADED and jd_text:
-        model = get_sentence_model()
-        if model is not None:
-            try:
-                # Generate embedding for the JD (normalized)
-                jd_embedding = model.encode(jd_text, normalize_embeddings=True)
-                # Compute dot products (since both are normalized, this equals cosine similarity)
-                similarities = np.dot(CANDIDATE_EMBEDDINGS, jd_embedding)
-                
-                # Build dictionary for candidate lookup
-                for cid, idx in CANDIDATE_ID_TO_INDEX.items():
-                    similarities_dict[cid] = float(similarities[idx])
-            except Exception as e:
-                print(f"Warning: Failed to compute semantic similarity: {e}")
+        try:
+            # Generate embedding for the JD (normalized)
+            jd_embedding = encode_texts(jd_text, normalize=True)
+            # Compute dot products (since both are normalized, this equals cosine similarity)
+            similarities = np.dot(CANDIDATE_EMBEDDINGS, jd_embedding)
+            
+            # Build dictionary for candidate lookup
+            for cid, idx in CANDIDATE_ID_TO_INDEX.items():
+                similarities_dict[cid] = float(similarities[idx])
+        except Exception as e:
+            print(f"Warning: Failed to compute semantic similarity: {e}")
                 
     # Extract jd keywords and skills once
     jd_skills = extract_skills_from_jd(jd_text)
