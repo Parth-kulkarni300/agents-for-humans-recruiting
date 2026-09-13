@@ -416,7 +416,7 @@ function DropZone({
               whiteSpace: 'nowrap'
             }}
           >
-            <Zap size={14} /> ⚡ Load Demo Dataset
+            <Zap size={14} /> Load Demo Dataset
           </button>
         )}
       </div>
@@ -1062,14 +1062,16 @@ export default function RecruitShieldApp() {
   const handleLoadDemoDataset = async () => {
     try {
       showToast("Loading bundled demo dataset...", "info");
-      const res = await fetch(`${API_BASE}/load_demo`, { method: "POST" });
+      let res = await fetch(`${API_BASE}/load_demo`, { method: "POST" });
+      if (res.status === 404) {
+        res = await fetch(`${API_BASE}/load`, { method: "POST" });
+      }
       const data = await res.json();
-      if (res.ok && data.status === "success") {
+      if (res.ok && (data.status === "success" || data.count > 0)) {
         setFiles(["sample_candidates.jsonl (Demo Dataset)"]);
-        if (data.total_candidates) {
-          fetchShortlist(1);
-          showToast(`Demo dataset loaded successfully (${data.total_candidates} candidates)`, "success");
-        }
+        const count = data.total_candidates || data.count || 14;
+        fetchShortlist(1);
+        showToast(`Demo dataset loaded successfully (${count} candidates)`, "success");
       } else {
         showToast(`Failed to load demo dataset: ${data.detail || 'Error'}`, "error");
       }
@@ -1839,7 +1841,8 @@ function Ingest({
                 type="button"
                 onClick={onLoadDemo}
                 style={{
-                  padding: "12px 20px",
+                  height: "44px",
+                  padding: "0 20px",
                   borderRadius: "10px",
                   background: "linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(3, 105, 161, 0.2) 100%)",
                   border: "1px solid rgba(56, 189, 248, 0.5)",
@@ -1849,11 +1852,14 @@ function Ingest({
                   cursor: "pointer",
                   display: "inline-flex",
                   alignItems: "center",
+                  justifyContent: "center",
                   gap: "8px",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
                   boxShadow: "0 0 15px rgba(56, 189, 248, 0.25)"
                 }}
               >
-                <Zap size={16} /> ⚡ Load Demo Dataset
+                <Zap size={16} /> Load Demo Dataset
               </button>
             )}
             <GlowButton onClick={onAnalyze}>
@@ -2326,7 +2332,7 @@ function Pipeline({
                   onClick={onLoadDemo}
                   title="Reset/load the 15-candidate demo dataset"
                   style={{
-                    display: "flex",
+                    display: "inline-flex",
                     alignItems: "center",
                     gap: "6px",
                     padding: "8px 14px",
@@ -2337,11 +2343,13 @@ function Pipeline({
                     fontSize: "13px",
                     fontWeight: 700,
                     cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
                     boxShadow: "0 0 15px rgba(56, 189, 248, 0.2)"
                   }}
                 >
                   <Zap size={14} />
-                  <span>⚡ Load Demo Dataset</span>
+                  <span>Load Demo Dataset</span>
                 </button>
               )}
               <button className="sort-button">
