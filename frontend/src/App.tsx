@@ -1170,7 +1170,7 @@ export default function RecruitShieldApp() {
         onClose={() => setIsBedrockConfigOpen(false)}
       />
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-      <AIChatbotWidget />
+      <AIChatbotWidget jd={jd} />
     </>
   );
 }
@@ -3370,7 +3370,7 @@ function AgentConsoleModal({
   );
 }
 
-function AIChatbotWidget() {
+function AIChatbotWidget({ jd }: { jd: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<
     { sender: "ai" | "user"; text: string; time?: string }[]
