@@ -205,7 +205,7 @@ def run_agent_chat(req: ChatRequest):
     if not agent_mod.CANDIDATES:
         raise HTTPException(status_code=400, detail="No candidates loaded. Please upload a candidates file first.")
     
-    # Only attempt Strands Bedrock if caller supplied explicit AWS credentials in request UI panel
+    # Run Strands Bedrock agent if AWS credentials provided (for tool execution background logging)
     if req.aws_access_key and req.aws_secret_key:
         try:
             logger.info("Running Strands Bedrock Agent with provided AWS credentials...")
@@ -228,10 +228,12 @@ def run_agent_chat(req: ChatRequest):
                 response_text = str(result)
                 
             full_check_str = f"{response_text} {str(result)}"
-            if not any(dump_keyword in full_check_str for dump_keyword in ["audit_candidate_integrity", "apply_consulting_filter", "rank_and_reason_candidates", "RecruitShield Agent Output"]):
+            # If Bedrock provided a clean conversational response, return it
+            if response_text and not any(dump_keyword in full_check_str for dump_keyword in ["audit_candidate_integrity", "apply_consulting_filter", "rank_and_reason_candidates", "RecruitShield Agent Output", "[\n  {\n    \"rank\":"]):
                 return {"response": response_text, "tool_calls": [], "shortlist_count": len(agent_mod.ACTIVE_SHORTLIST)}
         except Exception as bedrock_err:
             logger.warning(f"Bedrock agent skipped or failed: {bedrock_err}")
+
 
     # 2. Run Candidate Screening Pipeline
     steps = []
