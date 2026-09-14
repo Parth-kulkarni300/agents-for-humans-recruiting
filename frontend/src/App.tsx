@@ -2038,7 +2038,7 @@ function Pipeline({
   const effectiveTotalCount = isFilteringActive ? filtered.length : currentTabTotalCount;
   const effectiveTotalPages = Math.max(1, Math.ceil(effectiveTotalCount / 50));
 
-  const hasNextPage = page < effectiveTotalPages && filtered.length >= 50;
+  const hasNextPage = page < effectiveTotalPages;
   const hasPreviousPage = page > 1;
 
   return (
