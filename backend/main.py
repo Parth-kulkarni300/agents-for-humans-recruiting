@@ -284,22 +284,12 @@ def run_agent_chat(req: ChatRequest):
                 )
         db_search_context = "\n".join(search_context_lines) if search_context_lines else "No specific keyword matches found."
 
-        # Extract rich candidate context summary for LLM reasoning
-        active_list = agent_mod.ACTIVE_SHORTLIST if agent_mod.ACTIVE_SHORTLIST else agent_mod.CANDIDATES
-        top_candidates_summary = []
-        for idx, c in enumerate((active_list or [])[:25]):
-            rank_num = c.get('rank', idx + 1)
-            raw_score = c.get('score', 0)
-            score_pct = round(raw_score * 100, 1) if raw_score <= 1.0 else round(raw_score, 1)
-            cand_raw = c.get("candidate_raw", c)
-            skills = cand_raw.get("skills", [])
-            skills_str = ", ".join([(s.get("name") if isinstance(s, dict) else str(s)) for s in skills[:6]])
-            top_candidates_summary.append(
-                f"- Rank #{rank_num} | ID: {c.get('candidate_id')} | Name: {c.get('name')} | Title: {c.get('current_title', 'N/A')} at {c.get('current_company', 'N/A')} | Match Score: {score_pct}% | Location: {c.get('location', 'N/A')} | Exp: {c.get('years_exp', 0)} yrs | Skills: {skills_str} | Reasoning: {c.get('reasoning', 'Strong role match')}"
-            )
-        cand_context = "\n".join(top_candidates_summary) if top_candidates_summary else "No candidates currently loaded."
+        # Serialize full candidate dataset context for dynamic LLM reasoning across all fields
+        candidates_full_dump = json.dumps(agent_mod.CANDIDATES, default=str)
+        shortlist_full_dump = json.dumps(agent_mod.ACTIVE_SHORTLIST[:30] if agent_mod.ACTIVE_SHORTLIST else [], default=str)
+        honeypots_full_dump = json.dumps(agent_mod.HONEYPOT_CANDIDATES, default=str)
 
-        # Generate concise, executive recruiter response via Gemini or structured fallback
+        # Generate concise, executive recruiter response via Gemini 2.5 Flash
         gemini_key = os.environ.get("GEMINI_API_KEY")
         ai_summary = ""
         if gemini_key:
@@ -307,25 +297,29 @@ def run_agent_chat(req: ChatRequest):
                 from google import genai
                 client_gemini = genai.Client(api_key=gemini_key)
                 
-                prompt = f"""You are RecruitShield AI, an autonomous recruiter co-pilot powered by the AWS Strands Agents SDK.
+                prompt = f"""You are RecruitShield AI, an autonomous recruiter co-pilot co-developed with the AWS Strands Agents SDK.
 
 USER QUESTION: "{user_query}"
 
-Candidate Pipeline Stats:
-- Total Candidates: {len(agent_mod.CANDIDATES)}
-- Security Honeypots Blocked: {agent_mod.HONEYPOT_COUNT} trap profiles
+CANDIDATE PIPELINE STATS:
+- Total Candidates Evaluated: {len(agent_mod.CANDIDATES)}
+- Security Honeypots Blocked: {len(agent_mod.HONEYPOT_CANDIDATES)} trap profiles
 
-Active Candidates Pool (Ranked Shortlist & Profiles):
-{cand_context}
+FULL ACTIVE CANDIDATES DATASET (Names, Roles, Companies, Career History, Education Institutions/Tiers, Skills, Notice Periods, Relocation Willingness, GitHub Scores):
+{candidates_full_dump}
 
-Database Search Matches for "{user_query}":
-{db_search_context}
+RANKED SHORTLIST WITH RECRUITER RATIONALE:
+{shortlist_full_dump}
+
+DISQUALIFIED HONEYPOT TRAP PROFILES:
+{honeypots_full_dump}
 
 INSTRUCTIONS:
 1. Directly answer the user's specific question: "{user_query}".
-2. You can answer questions about ANY specific candidate (by name or rank number), skills, companies, experience, locations, or honeypot security rejections.
-3. Keep the response clean, concise, executive, and formatted in Markdown with bullet points.
-4. DO NOT output raw JSON code blocks or unformatted tool dumps."""
+2. You have 100% complete knowledge of every candidate's name, ID, rank, role, current company, past work history, education (colleges & tiers), skills, notice period, relocation willingness, GitHub activity score, and security honeypot rejection reasons.
+3. Perform accurate reasoning, counting, comparing, or filtering based on the candidate dataset above.
+4. Keep the response clean, concise, executive, professional, and formatted in Markdown with bullet points.
+5. NEVER output raw JSON code blocks or unformatted tool dumps."""
 
                 response = client_gemini.models.generate_content(
                     model="gemini-2.5-flash",
