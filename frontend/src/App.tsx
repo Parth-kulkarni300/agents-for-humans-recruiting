@@ -3482,10 +3482,24 @@ function AIChatbotWidget({ jd }: { jd: string }) {
 
   const cleanAgentResponse = (rawText: string, _userQuery: string): string => {
     if (!rawText) return "No response received from agent.";
-    // Strip trailing raw JSON dumps if present from Bedrock tool logs
     let cleaned = rawText;
-    if (cleaned.includes("[{") && cleaned.includes("}]") && cleaned.indexOf("[{") > 50) {
-      cleaned = cleaned.substring(0, cleaned.indexOf("[{")).trim();
+    // Strip the "🤖 RecruitShield Agent Output" header block if present (from cached/old Bedrock responses)
+    const agentOutputMarker = "\u{1F916} **RecruitShield Agent Output**";
+    if (cleaned.includes(agentOutputMarker)) {
+      // Find where the actual tool dump JSON starts and remove everything from the marker
+      const markerIdx = cleaned.indexOf(agentOutputMarker);
+      cleaned = cleaned.substring(markerIdx + agentOutputMarker.length).trim();
+    }
+    // Strip raw JSON array dumps (e.g. rank_and_reason_candidates output)
+    const jsonArrayIdx = cleaned.indexOf("\n[\n  {\n");
+    if (jsonArrayIdx > 30) {
+      cleaned = cleaned.substring(0, jsonArrayIdx).trim();
+    }
+    // Strip "Direct query response for" header lines
+    cleaned = cleaned.replace(/Direct query response for:.*?\n\n/s, "").trim();
+    // Strip tool name headers like **audit_candidate_integrity** blocks
+    if (cleaned.startsWith("**audit_candidate_integrity") || cleaned.startsWith("**apply_consulting_filter") || cleaned.startsWith("**rank_and_reason")) {
+      return "RecruitShield AI is analyzing your candidate pool. Please try again in a moment.";
     }
     return cleaned;
   };
@@ -3502,10 +3516,12 @@ function AIChatbotWidget({ jd }: { jd: string }) {
 
     try {
       const activeJdText = jd || (typeof (window as any).__ACTIVE_JD !== 'undefined' ? (window as any).__ACTIVE_JD : "");
+      // NOTE: Do NOT send AWS credentials to /chat — chatbot uses Gemini 2.5 Flash only.
+      // AWS creds are only used by /run_agent for the demo pipeline visualization.
       const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: query, job_description: activeJdText, ...getAwsCredsPayload() }),
+        body: JSON.stringify({ message: query, job_description: activeJdText }),
       });
       const data = await res.json();
       let aiResponse = res.ok
