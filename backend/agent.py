@@ -269,8 +269,9 @@ def get_recruiter_agent(aws_access_key: str = None, aws_secret_key: str = None, 
         except Exception as e:
             logger.error(f"Failed to initialize Bedrock model: {e}. Falling back to local routing.")
             
-    # If Bedrock is not configured, we run in mock/local mode which uses python callback simulation
-    # but still conforms strictly to Strands SDK tool definitions.
+    if model is None:
+        raise ValueError("AWS Bedrock model is not configured. Falling back to Gemini / Smart reasoning engine.")
+
     tools_list = [audit_candidate_integrity, apply_consulting_filter, rank_and_reason_candidates]
     
     return Agent(
