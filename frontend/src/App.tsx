@@ -3520,47 +3520,34 @@ function AIChatbotWidget({ jd }: { jd: string }) {
     }
 
     if (foundCity) {
-      if (foundCity === "Bangalore") {
-        return `### 📍 Location Analysis: **Bangalore**\n\nFound **5 candidates** located in **Bangalore**:\n\n` +
-          `1. **Ananya Iyer** (\`C-002\`) — *ML Engineer* at Sarvam AI (Rank #1)\n` +
-          `2. **Rohan Verma** (\`C-001\`) — *Senior Backend Engineer* at Razorpay (Rank #2)\n` +
-          `3. **Sneha Kulkarni** (\`C-005\`) — *Data Scientist* at Flipkart (Rank #8)\n` +
-          `4. **Meera Pillai** (\`C-010\`) — *Cloud Platform Engineer* at Wysa (Rank #7)\n` +
-          `5. **Tanvi Joshi** (\`C-012\`) — *Machine Learning Engineer* at Krutrim (Rank #4)`;
-      } else if (foundCity === "Mumbai") {
-        return `### 📍 Location Analysis: **Mumbai**\n\nFound **2 candidates** located in **Mumbai**:\n\n` +
-          `1. **Priya Nair** (\`C-003\`) — *Frontend Engineer* (Rank #12)\n` +
-          `2. **Aditya Kapoor** (\`C-013\`) — *Software Engineer* (Rank #5)`;
-      } else if (foundCity === "Pune") {
-        return `### 📍 Location Analysis: **Pune**\n\nFound **1 candidate** located in **Pune**:\n\n` +
-          `1. **Karan Mehta** (\`C-004\`) — *DevOps Engineer* (Rank #9)`;
-      } else if (foundCity === "Chennai") {
-        return `### 📍 Location Analysis: **Chennai**\n\nFound **2 candidates** located in **Chennai**:\n\n` +
-          `1. **Arjun Rao** (\`C-006\`) — *Full Stack Engineer* (Rank #13)\n` +
-          `2. **Rahul Desai** (\`C-011\`) — *Backend Engineer* (Rank #10)`;
-      } else if (foundCity === "Gurgaon") {
-        return `### 📍 Location Analysis: **Gurgaon**\n\nFound **1 candidate** located in **Gurgaon**:\n\n` +
-          `1. **Divya Shah** (\`C-007\`) — *Senior Backend Engineer* (Rank #3)`;
-      } else if (foundCity === "Noida") {
-        return `### 📍 Location Analysis: **Noida**\n\nFound **2 candidates** located in **Noida**:\n\n` +
-          `1. **Vikram Singh** (\`C-008\`) — *Backend Engineer* (Rank #14)\n` +
-          `2. **Neha Gupta** (\`C-014\`) — *Senior Frontend Engineer* (Rank #11)`;
+      const cityMatches = candidates.filter((c) => {
+        const str = JSON.stringify(c).toLowerCase();
+        return str.includes(foundCity!.toLowerCase());
+      });
+      if (cityMatches.length > 0) {
+        const list = cityMatches.map((c, idx) => 
+          `${idx + 1}. **${c.name || 'Candidate'}** (\`${c.candidate_id || `C-${idx+1}`}\`) — *${c.current_title || 'Engineer'}* (Rank #${c.rank || idx + 1})`
+        ).join("\n");
+        return `### 📍 Location Analysis: **${foundCity}**\n\nFound **${cityMatches.length} candidate(s)** located in or associated with **${foundCity}**:\n\n${list}`;
+      } else {
+        return `### 📍 Location Analysis: **${foundCity}**\n\nScanned candidate database for profiles matching **${foundCity}**.`;
       }
     }
 
     // 1. Relocation query
     if (q.includes("relocat") || q.includes("move") || q.includes("relocation")) {
-      const relocList = [
-        "1. **Rohan Verma** (`C-001`) — *Senior Backend Engineer* (Bangalore) | 30d Notice",
-        "2. **Karan Mehta** (`C-004`) — *DevOps Engineer* (Pune) | 30d Notice",
-        "3. **Arjun Rao** (`C-006`) — *Full Stack Engineer* (Chennai) | 30d Notice",
-        "4. **Divya Shah** (`C-007`) — *Senior Backend Engineer* (Gurgaon) | 15d Notice",
-        "5. **Vikram Singh** (`C-008`) — *Backend Engineer* (Noida) | 60d Notice",
-        "6. **Rahul Desai** (`C-011`) — *Backend Engineer* (Chennai) | 30d Notice",
-        "7. **Aditya Kapoor** (`C-013`) — *Software Engineer* (Noida) | 60d Notice",
-        "8. **Sameer Khan** (`C-015`) — *Backend Engineer* (San Francisco) | 30d Notice"
-      ];
-      return `### ✈️ Relocation Status Analysis\n\nFound **8 candidates** ready to relocate:\n\n` + relocList.join("\n");
+      const relocMatches = candidates.filter((c) => {
+        const str = JSON.stringify(c).toLowerCase();
+        return c.relocate === true || str.includes("relocat") || str.includes("notice");
+      });
+      if (relocMatches.length > 0) {
+        const list = relocMatches.map((c, idx) => 
+          `${idx + 1}. **${c.name || 'Candidate'}** (\`${c.candidate_id || `C-${idx+1}`}\`) — *${c.current_title || 'Engineer'}*`
+        ).join("\n");
+        return `### ✈️ Relocation Status Analysis\n\nFound **${relocMatches.length} candidate(s)** ready to relocate:\n\n${list}`;
+      } else {
+        return `### ✈️ Relocation Status Analysis\n\nScanned candidate pool for relocation willingness.`;
+      }
     }
 
     // 2. Company search query (e.g. Sarvam AI, Razorpay, Zomato, Flipkart, Meesho, Paytm, CRED, etc.)
@@ -3572,28 +3559,20 @@ function AIChatbotWidget({ jd }: { jd: string }) {
     const foundComp = knownCompanies.find((comp) => q.includes(comp));
     if (foundComp) {
       const compCapitalized = foundComp.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-      if (foundComp.includes("sarvam")) {
-        return `### 🏢 Company Match: **Sarvam AI**\n\nFound **1 candidate** who has worked at **Sarvam AI**:\n\n` +
-          `- **Ananya Iyer** (\`C-002\`) — *ML Engineer* at Sarvam AI (Rank #1, 62.8% Match Score)\n` +
-          `  - **Location**: Bangalore | Experience: 4.0 yrs\n` +
-          `  - **Career Rationale**: Fine-tuned Indic LLMs and built production evaluation pipelines at Sarvam AI.`;
-      } else if (foundComp.includes("razorpay")) {
-        return `### 🏢 Company Match: **Razorpay**\n\nFound **1 candidate** who worked at **Razorpay**:\n\n` +
-          `- **Rohan Verma** (\`C-001\`) — *Senior Backend Engineer* (Rank #2, 54.7% Match Score)\n` +
-          `  - **Location**: Bangalore | Experience: 6.0 yrs | Scaled payment APIs on AWS.`;
-      } else if (foundComp.includes("zomato")) {
-        return `### 🏢 Company Match: **Zomato**\n\nFound **1 candidate** who worked at **Zomato**:\n\n` +
-          `- **Divya Shah** (\`C-007\`) — *Senior Backend Engineer* (Rank #3, 54.7% Match Score)\n` +
-          `  - **Location**: Gurgaon | Experience: 8.0 yrs | Rewrote order-routing engine in Go.`;
-      } else if (foundComp.includes("cred")) {
-        return `### 🏢 Company Match: **CRED**\n\nFound **1 candidate** who worked at **CRED**:\n\n` +
-          `- **Sameer Khan** (\`C-015\`) — *Backend Engineer* (Rank #6, 42.3% Match Score)\n` +
-          `  - **Location**: San Francisco | Experience: 5.0 yrs | Built billing microservices.`;
+      const compMatches = candidates.filter((c) => {
+        const str = JSON.stringify(c).toLowerCase();
+        return str.includes(foundComp.toLowerCase());
+      });
+      if (compMatches.length > 0) {
+        const list = compMatches.map((c) => 
+          `- **${c.name}** (\`${c.candidate_id}\`) — *${c.current_title}* (Rank #${c.rank}, ${((c.score > 1 ? c.score : c.score * 100) || 0).toFixed(1)}% Match Score)\n  - **Reasoning**: ${c.reasoning || 'Matched company experience'}`
+        ).join("\n");
+        return `### 🏢 Company Match: **${compCapitalized}**\n\nFound **${compMatches.length} candidate(s)** with experience at **${compCapitalized}**:\n\n${list}`;
       } else {
-        return `### 🏢 Company Match: **${compCapitalized}**\n\nScanned active database for company records matching *"${compCapitalized}"*.\n\n` +
-          `Candidates matching company criteria are flagged in the shortlist table below.`;
+        return `### 🏢 Company Match: **${compCapitalized}**\n\nScanned active candidate database for experience matching *"${compCapitalized}"*.`;
       }
     }
+
 
     // 3. Honeypot / Firewall query
     if (q.includes("honeypot") || q.includes("firewall") || q.includes("blocked") || q.includes("fake") || q.includes("anomaly") || q.includes("trap") || q.includes("disqualifi")) {
