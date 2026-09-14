@@ -231,10 +231,15 @@ def run_agent_chat(req: ChatRequest):
             for tc in result.metrics.tool_calls:
                 tool_calls.append({"name": tc.name, "arguments": tc.arguments, "status": "success"})
         
+        # If Strands returned raw tool dump (because Bedrock model was unset or fell back to local execution)
+        if "RecruitShield Agent Output" in response_text or "audit_candidate_integrity" in response_text or "rank_and_reason_candidates" in response_text:
+            logger.info("Strands Agent returned raw tool output. Falling through to Gemini / Smart reasoning engine...")
+            raise ValueError("Raw tool output detected from Strands Agent — triggering smart reasoning layer fallback")
+
         return {"response": response_text, "tool_calls": tool_calls, "shortlist_count": len(agent_mod.ACTIVE_SHORTLIST)}
         
     except Exception as bedrock_err:
-        logger.warning(f"Bedrock unavailable, using Gemini fallback...")
+        logger.warning(f"Bedrock/Strands model fallback: {bedrock_err}. Using Gemini / Smart Query engine reasoning...")
         
         # --- GEMINI FALLBACK: Run Strands tools + Gemini for reasoning ---
         steps = []
