@@ -2464,7 +2464,7 @@ function Pipeline({
                 items={filtered}
                 className="candidate-list-anim"
                 itemGap="0"
-                showGradients={true}
+                showGradients={false}
                 enableArrowNavigation={false}
                 displayScrollbar={true}
                 renderItem={(c, i) => {
