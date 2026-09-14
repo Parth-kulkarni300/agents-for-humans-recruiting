@@ -206,31 +206,11 @@ def run_agent_chat(req: ChatRequest):
     if not agent_mod.CANDIDATES:
         raise HTTPException(status_code=400, detail="No candidates loaded. Please upload a candidates file first.")
     
-    # 1. Optionally run Strands Bedrock agent if AWS credentials provided (in background for logging)
-    bedrock_response = ""
-    if req.aws_access_key and req.aws_secret_key:
-        try:
-            logger.info("Running Strands Bedrock Agent with provided AWS credentials...")
-            agent = get_recruiter_agent(
-                aws_access_key=req.aws_access_key,
-                aws_secret_key=req.aws_secret_key,
-                aws_region=req.aws_region or "us-east-2"
-            )
-            result = agent(req.message)
-            if hasattr(result, "message") and hasattr(result.message, "content"):
-                for block in result.message.content:
-                    if hasattr(block, "text"):
-                        bedrock_response += block.text
-                    elif isinstance(block, str):
-                        bedrock_response += block
-            if not bedrock_response:
-                bedrock_response = str(result)
-            
-            # If Bedrock produced a clean, short conversational response (without raw tool dumps), use it
-            if bedrock_response and not any(k in bedrock_response for k in ["audit_candidate_integrity", "apply_consulting_filter", "rank_and_reason_candidates", "RecruitShield Agent Output", "[\n  {\n    \"rank\":"]):
-                return {"response": bedrock_response, "tool_calls": [], "shortlist_count": len(agent_mod.ACTIVE_SHORTLIST)}
-        except Exception as bedrock_err:
-            logger.warning(f"Bedrock agent skipped or failed: {bedrock_err}")
+    # Skip Bedrock for chatbot Q&A — Bedrock agent always runs the full screening pipeline
+    # (audit + filter + rank) and formats output as raw tool dumps, not conversational answers.
+    # All chatbot queries are handled exclusively by Gemini 2.5 Flash with full candidate context.
+
+
 
     # 2. Run Candidate Screening Pipeline to ensure shortlist & honeypot state are fresh
     steps = []
