@@ -3480,161 +3480,16 @@ function AIChatbotWidget({ jd }: { jd: string }) {
     "Summarize top candidates & skills",
   ];
 
-  const cleanAgentResponse = (rawText: string, userQuery: string): string => {
+  const cleanAgentResponse = (rawText: string, _userQuery: string): string => {
     if (!rawText) return "No response received from agent.";
-    if (!rawText.includes("RecruitShield Agent Output") && !rawText.includes("audit_candidate_integrity") && !rawText.includes("rank_and_reason_candidates")) {
-      return rawText;
+    // Strip trailing raw JSON dumps if present from Bedrock tool logs
+    let cleaned = rawText;
+    if (cleaned.includes("[{") && cleaned.includes("}]") && cleaned.indexOf("[{") > 50) {
+      cleaned = cleaned.substring(0, cleaned.indexOf("[{")).trim();
     }
-
-    const q = userQuery.toLowerCase();
-    let candidates: any[] = [];
-    try {
-      const match = rawText.match(/\[\s*\{[\s\S]*\}\s*\]/);
-      if (match) {
-        candidates = JSON.parse(match[0]);
-      }
-    } catch (e) {
-      console.error("Failed to parse candidates JSON from agent output", e);
-    }
-
-    // 0. Location query (e.g. Bangalore / Banglore, Mumbai, Pune, Chennai, Gurgaon, Noida, SF)
-    const locKeywords: Record<string, string> = {
-      "banglore": "Bangalore", "bangalore": "Bangalore", "bengaluru": "Bangalore",
-      "mumbai": "Mumbai", "bombay": "Mumbai",
-      "pune": "Pune",
-      "chennai": "Chennai", "madras": "Chennai",
-      "gurgaon": "Gurgaon", "gurugram": "Gurgaon",
-      "noida": "Noida",
-      "hyderabad": "Hyderabad", "hyd": "Hyderabad",
-      "san francisco": "San Francisco", "sf": "San Francisco"
-    };
-    let foundCity: string | null = null;
-    for (const [k, city] of Object.entries(locKeywords)) {
-      if (q.includes(k)) {
-        foundCity = city;
-        break;
-      }
-    }
-    if (!foundCity && (q.includes("location") || q.includes("city") || q.includes("cities"))) {
-      foundCity = "Bangalore";
-    }
-
-    if (foundCity) {
-      const cityMatches = candidates.filter((c) => {
-        const str = JSON.stringify(c).toLowerCase();
-        return str.includes(foundCity!.toLowerCase());
-      });
-      if (cityMatches.length > 0) {
-        const list = cityMatches.map((c, idx) => 
-          `${idx + 1}. **${c.name || 'Candidate'}** (\`${c.candidate_id || `C-${idx+1}`}\`) — *${c.current_title || 'Engineer'}* (Rank #${c.rank || idx + 1})`
-        ).join("\n");
-        return `### 📍 Location Analysis: **${foundCity}**\n\nFound **${cityMatches.length} candidate(s)** located in or associated with **${foundCity}**:\n\n${list}`;
-      } else {
-        return `### 📍 Location Analysis: **${foundCity}**\n\nScanned candidate database for profiles matching **${foundCity}**.`;
-      }
-    }
-
-    // 1. Relocation query
-    if (q.includes("relocat") || q.includes("move") || q.includes("relocation")) {
-      const relocMatches = candidates.filter((c) => {
-        const str = JSON.stringify(c).toLowerCase();
-        return c.relocate === true || str.includes("relocat") || str.includes("notice");
-      });
-      if (relocMatches.length > 0) {
-        const list = relocMatches.map((c, idx) => 
-          `${idx + 1}. **${c.name || 'Candidate'}** (\`${c.candidate_id || `C-${idx+1}`}\`) — *${c.current_title || 'Engineer'}*`
-        ).join("\n");
-        return `### ✈️ Relocation Status Analysis\n\nFound **${relocMatches.length} candidate(s)** ready to relocate:\n\n${list}`;
-      } else {
-        return `### ✈️ Relocation Status Analysis\n\nScanned candidate pool for relocation willingness.`;
-      }
-    }
-
-    // 2. Company search query (e.g. Sarvam AI, Razorpay, Zomato, Flipkart, Meesho, Paytm, CRED, etc.)
-    const knownCompanies = [
-      "sarvam ai", "sarvam", "razorpay", "zomato", "flipkart", "meesho", "phonepe",
-      "paytm", "cred", "freshworks", "google", "tcs", "wipro", "infosys", "accenture",
-      "wyse", "wysa", "zoho", "krutrim", "nykaa", "observe.ai"
-    ];
-    const foundComp = knownCompanies.find((comp) => q.includes(comp));
-    if (foundComp) {
-      const compCapitalized = foundComp.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-      const compMatches = candidates.filter((c) => {
-        const str = JSON.stringify(c).toLowerCase();
-        return str.includes(foundComp.toLowerCase());
-      });
-      if (compMatches.length > 0) {
-        const list = compMatches.map((c) => 
-          `- **${c.name}** (\`${c.candidate_id}\`) — *${c.current_title}* (Rank #${c.rank}, ${((c.score > 1 ? c.score : c.score * 100) || 0).toFixed(1)}% Match Score)\n  - **Reasoning**: ${c.reasoning || 'Matched company experience'}`
-        ).join("\n");
-        return `### 🏢 Company Match: **${compCapitalized}**\n\nFound **${compMatches.length} candidate(s)** with experience at **${compCapitalized}**:\n\n${list}`;
-      } else {
-        return `### 🏢 Company Match: **${compCapitalized}**\n\nScanned active candidate database for experience matching *"${compCapitalized}"*.`;
-      }
-    }
-
-
-    // 3. Honeypot / Firewall query
-    if (q.includes("honeypot") || q.includes("firewall") || q.includes("blocked") || q.includes("fake") || q.includes("anomaly") || q.includes("trap") || q.includes("disqualifi")) {
-      return `### 🛡️ 5-Point Anomaly Firewall Audit Results\n\n` +
-        `- **Total Candidate Pool Audited**: ${candidates.length + 1} profiles\n` +
-        `- **Synthetic Trap Profiles Disqualified**: 1 honeypot profile purged.\n` +
-        `- **Disqualified Profile**: **Ghost Founder** (\`C-009\`) — *Reason*: Signup date (2026-06-01) is after last active date (2023-01-01) logical contradiction.\n` +
-        `- **Remaining Active Candidates**: ${candidates.length} verified clean profiles.`;
-    }
-
-    // 4. Specific rank query (e.g. "who is rank no.1", "#2", "rank 3", "first")
-    const rankMatch = q.match(/(?:rank|no\.?|#|candidate)\s*(\d+)/i);
-    let targetRank = rankMatch ? parseInt(rankMatch[1], 10) : null;
-    if (!targetRank) {
-      if (q.includes("first") || q.includes("top 1") || q.includes("no 1") || q.includes("number 1")) targetRank = 1;
-      else if (q.includes("second") || q.includes("no 2")) targetRank = 2;
-      else if (q.includes("third") || q.includes("no 3")) targetRank = 3;
-    }
-
-    if (targetRank && candidates.length > 0) {
-      const cand = candidates.find((c) => c.rank === targetRank) || candidates[targetRank - 1] || candidates[0];
-      const scorePct = (cand.score > 1 ? cand.score : cand.score * 100).toFixed(1);
-      return `### 🎯 Candidate Analysis: **Rank #${cand.rank || targetRank} — ${cand.name}**\n\n` +
-        `**${cand.name}** (\`${cand.candidate_id}\`) is ranked **#${cand.rank || targetRank}** with a **${scorePct}% Match Score**.\n\n` +
-        `**Profile Overview:**\n` +
-        `- **Current Title**: *${cand.current_title}*\n` +
-        `- **Recruiter Reasoning**: ${cand.reasoning}\n` +
-        `- **Security Status**: Passed 5-Point Anomaly Firewall (Clean Profile).`;
-    }
-
-    // 5. Candidate name query
-    if (candidates.length > 0) {
-      const matchedCand = candidates.find((c) => {
-        const name = (c.name || "").toLowerCase();
-        return name && q.includes(name.split(" ")[0]);
-      });
-      if (matchedCand) {
-        const scorePct = (matchedCand.score > 1 ? matchedCand.score : matchedCand.score * 100).toFixed(1);
-        return `### 👤 Candidate Profile: **${matchedCand.name}**\n\n` +
-          `**${matchedCand.name}** (\`${matchedCand.candidate_id}\`) is ranked **#${matchedCand.rank}** with a **${scorePct}% Match Score**.\n\n` +
-          `- **Title**: *${matchedCand.current_title}*\n` +
-          `- **AI Recruiter Reasoning**: ${matchedCand.reasoning}\n` +
-          `- **Firewall Verification**: Clean verified profile.`;
-      }
-    }
-
-    // 6. Default Shortlist Summary
-    if (candidates.length > 0) {
-      const top3 = candidates.slice(0, 3);
-      const topList = top3.map((c, i) => {
-        const scorePct = (c.score > 1 ? c.score : c.score * 100).toFixed(1);
-        return `${i + 1}. **${c.name}** (Rank #${c.rank}) — \`${scorePct}%\` match | *${c.current_title}*`;
-      }).join("\n");
-
-      return `### 🛡️ RecruitShield Shortlist Overview\n\n` +
-        `- **Total Active Candidates**: ${candidates.length}\n` +
-        `- **Security Firewall**: Active (100% clean candidates)\n\n` +
-        `**Top Shortlisted Candidates:**\n${topList}`;
-    }
-
-    return "RecruitShield AI co-pilot is active and analyzing your candidate pool.";
+    return cleaned;
   };
+
 
   const sendMessage = async (textToSend?: string) => {
     const query = textToSend || input;
