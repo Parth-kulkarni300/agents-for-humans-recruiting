@@ -17,9 +17,10 @@ const AnimatedItem = ({ children, delay = 0, index, onMouseEnter, onClick, gap =
       data-index={index}
       onMouseEnter={onMouseEnter}
       onClick={onClick}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.15, delay: delay || Math.min(index * 0.015, 0.25) }}
+      initial={{ opacity: 0, scale: 0.97, y: 6 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      whileHover={{ scale: 1.003, transition: { duration: 0.15 } }}
+      transition={{ duration: 0.2, delay: delay || Math.min(index * 0.015, 0.2) }}
       style={{ marginBottom: gap, cursor: 'pointer', width: '100%' }}
     >
       {children}
