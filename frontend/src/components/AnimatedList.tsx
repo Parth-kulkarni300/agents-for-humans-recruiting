@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { motion, useInView } from 'framer-motion';
+import { motion } from 'framer-motion';
 import './AnimatedList.css';
 
 type AnimatedItemProps = {
@@ -12,17 +12,14 @@ type AnimatedItemProps = {
 };
 
 const AnimatedItem = ({ children, delay = 0, index, onMouseEnter, onClick, gap = '1rem' }: AnimatedItemProps) => {
-  const ref = useRef(null);
-  const inView = useInView(ref, { amount: 0.5, once: false });
   return (
     <motion.div
-      ref={ref}
       data-index={index}
       onMouseEnter={onMouseEnter}
       onClick={onClick}
-      initial={{ scale: 0.7, opacity: 0 }}
-      animate={inView ? { scale: 1, opacity: 1 } : { scale: 0.7, opacity: 0 }}
-      transition={{ duration: 0.2, delay }}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.15, delay: delay || Math.min(index * 0.015, 0.25) }}
       style={{ marginBottom: gap, cursor: 'pointer', width: '100%' }}
     >
       {children}

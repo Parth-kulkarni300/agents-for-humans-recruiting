@@ -6,6 +6,8 @@
 .scroll-list {
   width: 100%;
   padding: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .scroll-list::-webkit-scrollbar {

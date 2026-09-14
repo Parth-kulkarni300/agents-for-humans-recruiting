@@ -73,7 +73,7 @@
 .logo-glitch.glitch{font-size:15px;font-weight:600;letter-spacing:-.01em;color:#e7edf6;white-space:nowrap;margin:0;cursor:default}
 .logo-glitch.glitch::after,.logo-glitch.glitch::before{background-color:#080a0f;color:#e7edf6}
 .candidate-list-anim{width:100%}
-.candidate-list-anim .scroll-list{max-height:640px;padding:0}
+.candidate-list-anim .scroll-list{max-height:calc(100vh - 340px);min-height:520px;overflow-y:auto;overflow-x:hidden;padding:0}
 .candidate-list-anim .top-gradient{background:linear-gradient(to bottom,#111923,transparent)}
 .candidate-list-anim .bottom-gradient{background:linear-gradient(to top,#0d141d,transparent)}
 .honeypot-list-anim{width:100%;flex:1;min-height:0;display:flex;flex-direction:column}
