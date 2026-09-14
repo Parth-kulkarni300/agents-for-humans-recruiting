@@ -370,10 +370,28 @@ INSTRUCTIONS:
                 if c_name and (c_name in q_lower or any(p in q_lower for p in name_parts)):
                     found_by_name.append(c)
 
-            # 3. Check for security/honeypot queries
+            # 3. Check for relocation queries
+            is_relocation_query = any(r in q_lower for r in ["relocat", "move", "relocation", "ready to move", "willing to move"])
+
+            # 4. Check for security/honeypot queries
             is_honeypot_query = any(h in q_lower for h in ["honeypot", "firewall", "blocked", "rejected", "fake", "prompt injection", "trap", "disqualified"])
 
-            if found_by_rank:
+            if is_relocation_query:
+                reloc_cands = []
+                for c in agent_mod.CANDIDATES:
+                    signals = c.get("redrob_signals", {})
+                    if signals.get("willing_to_relocate") is True:
+                        prof = c.get("profile", {})
+                        reloc_cands.append(
+                            f"- **{prof.get('anonymized_name', 'Candidate')}** (`{c.get('candidate_id')}`) — *{prof.get('current_title', 'Engineer')}* ({prof.get('location', 'N/A')})"
+                        )
+                resp_lines = [
+                    f"### ✈️ Relocation Status Analysis\n",
+                    f"Found **{len(reloc_cands)} candidates** ready to relocate:\n"
+                ] + reloc_cands
+                response_text = "\n".join(resp_lines)
+
+            elif found_by_rank:
                 cand = found_by_rank
                 raw_score = cand.get('score', 0)
                 score_pct = round(raw_score * 100, 1) if raw_score <= 1.0 else round(raw_score, 1)
@@ -433,7 +451,7 @@ INSTRUCTIONS:
                     f"Found **{len(db_search_results)}** candidate match(es):\n"
                 ]
                 for res in db_search_results[:5]:
-                    resp_lines.append(f"- **{res['name']}** (`{res['candidate_id']}`) — *{res['headline']}* | Skills: {res['skills']}")
+                    resp_lines.append(f"- **{res['name']}** (`{res['candidate_id']}`) — *{res['headline']}* | Company: {res['work_history']} | Skills: {res['skills']}")
                 response_text = "\n".join(resp_lines)
 
             else:
