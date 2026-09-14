@@ -2462,70 +2462,72 @@ function Pipeline({
               filtered.map((c, i) => {
                 const currentRank = (c as any).rank || ((page - 1) * 50 + i + 1);
                 return (
-                  <button
+                  <div
                     className="candidate-row"
+                    role="button"
+                    tabIndex={0}
                     key={c.id || i}
                     onClick={() => onSelect({ ...c, rank: currentRank })}
                   >
                     <span className="candidate-cell">
                       <i className="rank">#{String(currentRank).padStart(2, "0")}</i>
-                    <span className={`tiny-avatar ${c.tone}`}>
-                      {c.initials}
+                      <span className={`tiny-avatar ${c.tone}`}>
+                        {c.initials}
+                      </span>
+                      <strong>{c.name}</strong>
                     </span>
-                    <strong>{c.name}</strong>
-                  </span>
-                  <span className="role-cell">{c.role}</span>
-                  <span className="location-cell">
-                    <MapPin size={14} />
-                    {c.location}
-                  </span>
-                  <span
-                    className="match-cell"
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenBreakdown(c);
-                    }}
-                    title="View score breakdown"
-                  >
-                    <b>{c.score}</b>
-                    <span className="score-bar">
-                      <i style={{ width: `${c.score}%` }} />
+                    <span className="role-cell" title={c.role}>{c.role}</span>
+                    <span className="location-cell" title={c.location}>
+                      <MapPin size={14} />
+                      {c.location}
                     </span>
-                  </span>
-                  <span className="verified-badge">
-                    <Check size={12} /> Verified
-                  </span>
-                  <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleShortlist(c.id);
-                    }}
-                    title={c.isShortlisted ? "Remove candidate from shortlist" : "Star & add candidate to shortlist"}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: "32px",
-                      height: "32px",
-                      borderRadius: "8px",
-                      background: c.isShortlisted ? "rgba(245, 158, 11, 0.18)" : "rgba(255, 255, 255, 0.04)",
-                      border: c.isShortlisted ? "1px solid rgba(245, 158, 11, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
-                      cursor: "pointer",
-                      transition: "all 0.2s ease"
-                    }}
-                  >
-                    <Star
-                      size={16}
-                      style={{
-                        color: c.isShortlisted ? "#fbbf24" : "#64748b",
-                        fill: c.isShortlisted ? "#fbbf24" : "none",
-                        filter: c.isShortlisted ? "drop-shadow(0 0 8px rgba(251, 191, 36, 0.85))" : "none"
+                    <span
+                      className="match-cell"
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenBreakdown(c);
                       }}
-                    />
-                  </span>
-                  <ArrowRight className="row-arrow" size={16} />
-                </button>
+                      title="View score breakdown"
+                    >
+                      <b>{c.score}</b>
+                      <span className="score-bar">
+                        <i style={{ width: `${c.score}%` }} />
+                      </span>
+                    </span>
+                    <span className="verified-badge">
+                      <Check size={12} /> Verified
+                    </span>
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleShortlist(c.id);
+                      }}
+                      title={c.isShortlisted ? "Remove candidate from shortlist" : "Star & add candidate to shortlist"}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justify.content: "center",
+                        width: "32px",
+                        height: "32px",
+                        borderRadius: "8px",
+                        background: c.isShortlisted ? "rgba(245, 158, 11, 0.18)" : "rgba(255, 255, 255, 0.04)",
+                        border: c.isShortlisted ? "1px solid rgba(245, 158, 11, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease"
+                      }}
+                    >
+                      <Star
+                        size={16}
+                        style={{
+                          color: c.isShortlisted ? "#fbbf24" : "#64748b",
+                          fill: c.isShortlisted ? "#fbbf24" : "none",
+                          filter: c.isShortlisted ? "drop-shadow(0 0 8px rgba(251, 191, 36, 0.85))" : "none"
+                        }}
+                      />
+                    </span>
+                    <ArrowRight className="row-arrow" size={16} />
+                  </div>
               );
             })
           )}
