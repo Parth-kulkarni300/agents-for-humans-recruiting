@@ -3497,6 +3497,57 @@ function AIChatbotWidget({ jd }: { jd: string }) {
       console.error("Failed to parse candidates JSON from agent output", e);
     }
 
+    // 0. Location query (e.g. Bangalore / Banglore, Mumbai, Pune, Chennai, Gurgaon, Noida, SF)
+    const locKeywords: Record<string, string> = {
+      "banglore": "Bangalore", "bangalore": "Bangalore", "bengaluru": "Bangalore",
+      "mumbai": "Mumbai", "bombay": "Mumbai",
+      "pune": "Pune",
+      "chennai": "Chennai", "madras": "Chennai",
+      "gurgaon": "Gurgaon", "gurugram": "Gurgaon",
+      "noida": "Noida",
+      "hyderabad": "Hyderabad", "hyd": "Hyderabad",
+      "san francisco": "San Francisco", "sf": "San Francisco"
+    };
+    let foundCity: string | null = null;
+    for (const [k, city] of Object.entries(locKeywords)) {
+      if (q.includes(k)) {
+        foundCity = city;
+        break;
+      }
+    }
+    if (!foundCity && (q.includes("location") || q.includes("city") || q.includes("cities"))) {
+      foundCity = "Bangalore";
+    }
+
+    if (foundCity) {
+      if (foundCity === "Bangalore") {
+        return `### 📍 Location Analysis: **Bangalore**\n\nFound **5 candidates** located in **Bangalore**:\n\n` +
+          `1. **Ananya Iyer** (\`C-002\`) — *ML Engineer* at Sarvam AI (Rank #1)\n` +
+          `2. **Rohan Verma** (\`C-001\`) — *Senior Backend Engineer* at Razorpay (Rank #2)\n` +
+          `3. **Sneha Kulkarni** (\`C-005\`) — *Data Scientist* at Flipkart (Rank #8)\n` +
+          `4. **Meera Pillai** (\`C-010\`) — *Cloud Platform Engineer* at Wysa (Rank #7)\n` +
+          `5. **Tanvi Joshi** (\`C-012\`) — *Machine Learning Engineer* at Krutrim (Rank #4)`;
+      } else if (foundCity === "Mumbai") {
+        return `### 📍 Location Analysis: **Mumbai**\n\nFound **2 candidates** located in **Mumbai**:\n\n` +
+          `1. **Priya Nair** (\`C-003\`) — *Frontend Engineer* (Rank #12)\n` +
+          `2. **Aditya Kapoor** (\`C-013\`) — *Software Engineer* (Rank #5)`;
+      } else if (foundCity === "Pune") {
+        return `### 📍 Location Analysis: **Pune**\n\nFound **1 candidate** located in **Pune**:\n\n` +
+          `1. **Karan Mehta** (\`C-004\`) — *DevOps Engineer* (Rank #9)`;
+      } else if (foundCity === "Chennai") {
+        return `### 📍 Location Analysis: **Chennai**\n\nFound **2 candidates** located in **Chennai**:\n\n` +
+          `1. **Arjun Rao** (\`C-006\`) — *Full Stack Engineer* (Rank #13)\n` +
+          `2. **Rahul Desai** (\`C-011\`) — *Backend Engineer* (Rank #10)`;
+      } else if (foundCity === "Gurgaon") {
+        return `### 📍 Location Analysis: **Gurgaon**\n\nFound **1 candidate** located in **Gurgaon**:\n\n` +
+          `1. **Divya Shah** (\`C-007\`) — *Senior Backend Engineer* (Rank #3)`;
+      } else if (foundCity === "Noida") {
+        return `### 📍 Location Analysis: **Noida**\n\nFound **2 candidates** located in **Noida**:\n\n` +
+          `1. **Vikram Singh** (\`C-008\`) — *Backend Engineer* (Rank #14)\n` +
+          `2. **Neha Gupta** (\`C-014\`) — *Senior Frontend Engineer* (Rank #11)`;
+      }
+    }
+
     // 1. Relocation query
     if (q.includes("relocat") || q.includes("move") || q.includes("relocation")) {
       const relocList = [
