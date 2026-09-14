@@ -2541,7 +2541,7 @@ function Pipeline({
               />
           )}
           </div>
-          <div className="table-footer flex items-center justify-between" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="table-footer flex items-center justify-between" style={{ padding: '14px 190px 14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '13px', color: '#94a3b8' }}>
               {filtered.length === 0 ? (
                 "No matching candidates found"
