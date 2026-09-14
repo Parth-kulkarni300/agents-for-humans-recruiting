@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { motion, useMotionValue, useSpring } from 'motion/react';
+import { motion, useMotionValue, useSpring } from 'framer-motion';
 import './TiltedCard.css';
 
 const springValues = {
